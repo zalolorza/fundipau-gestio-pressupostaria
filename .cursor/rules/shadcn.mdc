@@ -1,0 +1,27 @@
+---
+description: Prioritza sempre components shadcn/ui per a qualsevol UI
+alwaysApply: true
+---
+
+# shadcn/ui first
+
+Aquest projecte està configurat amb shadcn (`components.json`, style `radix-nova`).
+
+## Obligatori
+
+- Usa components de `@/components/ui/*` abans de qualsevol HTML estilitzat a mà.
+- Si falta un component: `yarn dlx shadcn@latest add <nom>` i després importa’l.
+- No creïs `<button>`, `<input>`, `<select>`, `<textarea>`, modals o taules natius quan hi hagi equivalent shadcn (`Button`, `Input`, `Select`, `Textarea`, `Dialog`/`AlertDialog`/`Sheet`, `Table`, `Field`, etc.).
+- Els components de domini han de compondre primitives shadcn, no reinventar-les.
+- Al codi d’app: imports des de `@/components/ui/…` i `cn` des de `@/lib/utils`.
+
+## Exemple
+
+```tsx
+// ❌ BAD
+<button className="rounded-md bg-primary px-3 py-2" onClick={…}>Desa</button>
+
+// ✅ GOOD
+import { Button } from "@/components/ui/button"
+<Button onClick={…}>Desa</Button>
+```
