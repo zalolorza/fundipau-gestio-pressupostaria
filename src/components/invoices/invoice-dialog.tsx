@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState, useTransition } from "react"
+import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
@@ -128,10 +128,10 @@ export function InvoiceDialog({
     setIrpfRate(pre?.defaultIrpfRate ?? 0)
   }
 
-  useEffect(() => {
-    if (open) reset()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reset on open only
-  }, [open])
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (next) reset()
+  }
 
   function onPickSupplier(id: string) {
     setSupplierId(id)
@@ -185,7 +185,7 @@ export function InvoiceDialog({
       (fiscal.supplierAddress ?? "") !== (linked.address ?? ""))
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>

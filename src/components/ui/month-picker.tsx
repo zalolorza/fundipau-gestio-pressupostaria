@@ -68,9 +68,10 @@ function MonthPicker({
     : new Date().getFullYear()
   const [year, setYear] = React.useState(initialYear)
 
-  React.useEffect(() => {
-    if (open) setYear(value ? Number(value.slice(0, 4)) : new Date().getFullYear())
-  }, [open, value])
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (next) setYear(value ? Number(value.slice(0, 4)) : new Date().getFullYear())
+  }
 
   const setValue = (next: string) => {
     if (!isControlled) setUncontrolled(next)
@@ -92,7 +93,7 @@ function MonthPicker({
           onFocus={() => setOpen(true)}
         />
       ) : null}
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <Button
             id={id}

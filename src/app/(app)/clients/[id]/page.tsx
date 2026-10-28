@@ -137,7 +137,7 @@ export default async function ClientPage({
 
         <div className="py-6 space-y-6">
           <div>
-            <h2 className="text-xl font-bold">Factures a emetre</h2>
+            <h2 className="text-xl font-medium">Factures a emetre</h2>
             <p className="text-sm text-muted-foreground">
               Costos imputats als projectes del client en el període,
               multiplicats pel seu percentatge de finançament.

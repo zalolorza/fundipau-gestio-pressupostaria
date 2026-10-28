@@ -57,7 +57,8 @@ export async function getInvitationByToken(token: string) {
     .from(invitations)
     .where(eq(invitations.token, token))
     .limit(1)
-  return row ?? null
+  if (!row) return null
+  return { ...row, expired: row.expiresAt.getTime() < Date.now() }
 }
 
 /* ------------------------------- Opcions -------------------------------- */

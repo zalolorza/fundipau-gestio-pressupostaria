@@ -27,7 +27,7 @@ export default async function AcceptInvitePage({
     )
   }
 
-  if (invite.expiresAt.getTime() < Date.now()) {
+  if (invite.expired) {
     return (
       <InviteMessage
         title="Invitació caducada"

@@ -1,7 +1,7 @@
 "use client"
 
 import { SearchIcon } from "lucide-react"
-import { useEffect, useMemo, useState, useTransition } from "react"
+import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -72,11 +72,13 @@ export function AssignInvoiceDialog({
 
   const sel = invoices.find((i) => i.id === selected)
 
-  useEffect(() => {
-    if (!open) return
-    setSelected(null)
-    setQ("")
-  }, [open])
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (next) {
+      setSelected(null)
+      setQ("")
+    }
+  }
 
   function submit() {
     if (!selected) return
@@ -89,7 +91,7 @@ export function AssignInvoiceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
