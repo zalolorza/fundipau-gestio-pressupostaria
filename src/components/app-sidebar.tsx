@@ -59,7 +59,7 @@ const navAdmin = {
   title: "Administració",
   items: [
     { title: "Usuàries", url: "/usuaries", icon: UserRoundIcon },
-    { title: "Ajustos", url: "/Ajustos", icon: SettingsIcon },
+    { title: "Ajustos", url: "/ajustos", icon: SettingsIcon },
   ],
 };
 

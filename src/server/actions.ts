@@ -19,6 +19,7 @@ import {
   suppliers,
 } from "@/db/schema"
 import { requireSession } from "@/lib/auth"
+import type { CostType } from "@/lib/cost-type"
 import { round2 } from "@/lib/format"
 import { computeInvoice } from "@/lib/invoice"
 import { isInvoiceFilePathname } from "@/lib/invoice-file"
@@ -49,7 +50,16 @@ const optDate = z
 const money = z.coerce.number({ error: "Import no vàlid" }).finite()
 const pct = z.coerce.number().gt(0, "El percentatge ha de ser més gran que 0").lte(100, "Màxim 100 %")
 
+const costTypeSchema = z.enum(["direct", "indirect"])
 const allocationSchema = z.array(z.object({ id: z.string().uuid(), percentage: pct }))
+/** Assignació a projecte amb tipus de cost (nòmines). */
+const payrollAllocationSchema = z.array(
+  z.object({
+    id: z.string().uuid(),
+    percentage: pct,
+    costType: costTypeSchema.default("direct"),
+  })
+)
 type Allocation = z.infer<typeof allocationSchema>
 
 function fail(e: unknown): { ok: false; error: string } {
@@ -107,6 +117,11 @@ export async function deleteClient(id: string) {
 
 /* ------------------------------- Projectes ------------------------------- */
 
+/** Import opcional: string buit / null → null. */
+const optMoney = z
+  .union([z.literal(""), z.null(), z.undefined(), money.min(0, "L'import no pot ser negatiu")])
+  .transform((v) => (v === "" || v == null || v === undefined ? null : v))
+
 const projectSchema = z
   .object({
     name: z.string().trim().min(1, "El nom és obligatori"),
@@ -114,9 +129,31 @@ const projectSchema = z
     openedAt: optDate,
     closedAt: optDate,
     maxBudget: money.min(0, "El pressupost no pot ser negatiu"),
+    directBudget: optMoney,
+    indirectBudget: optMoney,
   })
   .refine((p) => !p.openedAt || !p.closedAt || p.closedAt >= p.openedAt, {
     message: "La data de tancament ha de ser posterior a la d'obertura",
+  })
+  .superRefine((p, ctx) => {
+    const hasD = p.directBudget != null
+    const hasI = p.indirectBudget != null
+    if (!hasD && !hasI) return
+    if (!hasD || !hasI) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Indica tant el pressupost directe com l'indirecte, o cap dels dos",
+        path: ["directBudget"],
+      })
+      return
+    }
+    if (round2(p.directBudget! + p.indirectBudget!) !== round2(p.maxBudget)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "El pressupost directe i l'indirecte han de sumar el pressupost màxim",
+        path: ["directBudget"],
+      })
+    }
   })
 export type ProjectInput = z.input<typeof projectSchema>
 
@@ -230,11 +267,13 @@ export async function assignPayrollToProject(
   payrollId: string,
   fromMonth: string,
   toMonthValue: string,
-  percentage: number
+  percentage: number,
+  costType: CostType = "direct"
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
+    const kind = costTypeSchema.parse(costType)
     const months = monthRange(fromMonth, toMonthValue)
     if (!months.length) throw new Error("El rang de mesos no és vàlid")
 
@@ -308,10 +347,10 @@ export async function assignPayrollToProject(
 
     await db
       .insert(payrollEntryProjects)
-      .values(entries.map((e) => ({ entryId: e.id, projectId, percentage: p })))
+      .values(entries.map((e) => ({ entryId: e.id, projectId, percentage: p, costType: kind })))
       .onConflictDoUpdate({
         target: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
-        set: { percentage: p },
+        set: { percentage: p, costType: kind },
       })
     revalidatePath(`/projectes/${projectId}`)
     revalidatePath(`/nomines/${payrollId}`)
@@ -411,7 +450,9 @@ const invoiceSchema = z.object({
   supplierCity: optText,
   baseAmount: money,
   vatRate: z.coerce.number().min(0).max(100),
+  vatDeductibleRate: z.coerce.number().min(0).max(100),
   irpfRate: z.coerce.number().min(0).max(100),
+  costType: costTypeSchema.default("direct"),
   file: invoiceFileSchema,
 })
 export type InvoiceInput = z.input<typeof invoiceSchema>
@@ -525,14 +566,18 @@ const bulkInvoicePatchSchema = z
     supplier: bulkInvoiceSupplierSchema.optional(),
     allocations: allocationSchema.optional(),
     vatRate: z.coerce.number().min(0).max(100).optional(),
+    vatDeductibleRate: z.coerce.number().min(0).max(100).optional(),
     irpfRate: z.coerce.number().min(0).max(100).optional(),
+    costType: costTypeSchema.optional(),
   })
   .refine(
     (p) =>
       p.supplier !== undefined ||
       p.allocations !== undefined ||
       p.vatRate !== undefined ||
-      p.irpfRate !== undefined,
+      p.vatDeductibleRate !== undefined ||
+      p.irpfRate !== undefined ||
+      p.costType !== undefined,
     { message: "Indica què vols canviar" }
   )
 export type BulkInvoicePatch = z.input<typeof bulkInvoicePatchSchema>
@@ -562,6 +607,13 @@ export async function bulkUpdateInvoices(
         .where(inArray(supplierInvoices.id, invoiceIds))
     }
 
+    if (data.vatDeductibleRate !== undefined) {
+      await db
+        .update(supplierInvoices)
+        .set({ vatDeductibleRate: data.vatDeductibleRate })
+        .where(inArray(supplierInvoices.id, invoiceIds))
+    }
+
     if (data.vatRate !== undefined || data.irpfRate !== undefined) {
       const rows = await db
         .select({
@@ -588,6 +640,13 @@ export async function bulkUpdateInvoices(
         })
         await db.batch(updates as [typeof updates[number], ...typeof updates[number][]])
       }
+    }
+
+    if (data.costType !== undefined) {
+      await db
+        .update(supplierInvoices)
+        .set({ costType: data.costType })
+        .where(inArray(supplierInvoices.id, invoiceIds))
     }
 
     if (data.allocations) {
@@ -666,12 +725,12 @@ export type PayrollInput = z.input<typeof payrollSchema>
 
 export async function createPayroll(
   input: PayrollInput,
-  allocations: { id: string; percentage: number }[]
+  allocations: { id: string; percentage: number; costType?: CostType }[]
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
     const data = payrollSchema.parse(input)
-    const list = allocationSchema.parse(allocations)
+    const list = payrollAllocationSchema.parse(allocations)
     checkAllocations(list, "max")
     const [{ id }] = await db.insert(payrolls).values(data).returning({ id: payrolls.id })
 
@@ -685,7 +744,16 @@ export async function createPayroll(
     if (list.length && entries.length)
       await db
         .insert(payrollEntryProjects)
-        .values(entries.flatMap((e) => list.map((a) => ({ entryId: e.id, projectId: a.id, percentage: a.percentage }))))
+        .values(
+          entries.flatMap((e) =>
+            list.map((a) => ({
+              entryId: e.id,
+              projectId: a.id,
+              percentage: a.percentage,
+              costType: a.costType,
+            }))
+          )
+        )
 
     revalidatePath("/nomines")
     revalidatePath("/projectes", "layout")
@@ -775,11 +843,11 @@ export async function setPayrollEntryProjects(
   payrollId: string,
   referenceMonth: string,
   scope: ChangeScope,
-  input: { id: string; percentage: number }[]
+  input: { id: string; percentage: number; costType?: CostType }[]
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
-    const list = allocationSchema.parse(input)
+    const list = payrollAllocationSchema.parse(input)
     checkAllocations(list, "max")
     const ref = toMonth(referenceMonth)
     const where =
@@ -796,9 +864,16 @@ export async function setPayrollEntryProjects(
     if (list.length)
       await db.batch([
         del,
-        db
-          .insert(payrollEntryProjects)
-          .values(ids.flatMap((entryId) => list.map((a) => ({ entryId, projectId: a.id, percentage: a.percentage })))),
+        db.insert(payrollEntryProjects).values(
+          ids.flatMap((entryId) =>
+            list.map((a) => ({
+              entryId,
+              projectId: a.id,
+              percentage: a.percentage,
+              costType: a.costType,
+            }))
+          )
+        ),
       ])
     else await del
 
@@ -841,7 +916,12 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
         .insert(payrollEntryProjects)
         .values(
           created.flatMap((e) =>
-            last.projects.map((a) => ({ entryId: e.id, projectId: a.projectId, percentage: a.percentage }))
+            last.projects.map((a) => ({
+              entryId: e.id,
+              projectId: a.projectId,
+              percentage: a.percentage,
+              costType: a.costType,
+            }))
           )
         )
     revalidatePath(`/nomines/${payrollId}`)
@@ -866,7 +946,7 @@ const payrollEntryIdsSchema = z.array(z.string().uuid()).min(1, "Selecciona alme
 const bulkPayrollEntryPatchSchema = z
   .object({
     amount: money.min(0).optional(),
-    allocations: allocationSchema.optional(),
+    allocations: payrollAllocationSchema.optional(),
   })
   .refine((p) => p.amount !== undefined || p.allocations !== undefined, {
     message: "Indica què vols canviar",
@@ -912,6 +992,7 @@ export async function bulkUpdatePayrollEntries(
                 entryId,
                 projectId: a.id,
                 percentage: a.percentage,
+                costType: a.costType,
               }))
             )
           ),

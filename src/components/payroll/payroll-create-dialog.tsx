@@ -118,6 +118,7 @@ export function PayrollCreateDialog({
                 mode="max"
                 itemLabel="projecte"
                 emptyText="Sense assignar a cap projecte"
+                withCostType
               />
             </FieldSet>
           </FieldGroup>

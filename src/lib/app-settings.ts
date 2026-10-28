@@ -4,9 +4,11 @@ import { eq } from "drizzle-orm"
 
 import { db } from "@/db"
 import { appSettings } from "@/db/schema"
+import { DEFAULT_VAT_DEDUCTIBLE_RATE } from "@/lib/invoice"
 import { maskSecret, openSecret, sealSecret } from "@/lib/secret-box"
 
 export const SETTING_ANTHROPIC_API_KEY = "anthropic_api_key"
+export const SETTING_VAT_DEDUCTIBLE_RATE = "vat_deductible_rate"
 
 export async function getSetting(key: string): Promise<string | null> {
   const row = await db.query.appSettings.findFirst({
@@ -57,4 +59,17 @@ export async function getAnthropicApiKeyStatus(): Promise<{
   const key = await getAnthropicApiKey()
   if (!key) return { configured: false, hint: null }
   return { configured: true, hint: maskSecret(key) }
+}
+
+/** % d'IVA deduïble per defecte a les factures noves (0–100). */
+export async function getDefaultVatDeductibleRate(): Promise<number> {
+  const raw = await getSetting(SETTING_VAT_DEDUCTIBLE_RATE)
+  if (raw == null) return DEFAULT_VAT_DEDUCTIBLE_RATE
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 0 || n > 100) return DEFAULT_VAT_DEDUCTIBLE_RATE
+  return n
+}
+
+export async function setDefaultVatDeductibleRate(rate: number): Promise<void> {
+  await setSetting(SETTING_VAT_DEDUCTIBLE_RATE, String(rate))
 }

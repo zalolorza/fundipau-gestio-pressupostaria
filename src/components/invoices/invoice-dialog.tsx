@@ -24,8 +24,15 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import type { SupplierInvoice } from "@/db/schema"
+import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { formatEuro } from "@/lib/format"
-import { computeInvoice, invoiceCost, VAT_RATES } from "@/lib/invoice"
+import {
+  computeInvoice,
+  deductibleVatAmount,
+  DEFAULT_VAT_DEDUCTIBLE_RATE,
+  invoiceCost,
+  VAT_RATES,
+} from "@/lib/invoice"
 import type { ExtractedInvoiceFields } from "@/lib/invoice-extract-types"
 import { saveInvoice } from "@/server/actions"
 import { extractInvoiceFromPathname } from "@/server/invoice-extract-actions"
@@ -90,6 +97,7 @@ export function InvoiceDialog({
   projectOptions,
   suppliers,
   defaultSupplierId,
+  defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
   open: controlledOpen,
   onOpenChange,
   children,
@@ -100,6 +108,8 @@ export function InvoiceDialog({
   suppliers: SupplierOption[]
   /** Proveïdor preseleccionat en crear una factura (p. ex. des de la fitxa del proveïdor) */
   defaultSupplierId?: string
+  /** % d'IVA deduïble per defecte (dels ajustos) en crear una factura */
+  defaultVatDeductibleRate?: number
   open?: boolean
   onOpenChange?: (open: boolean) => void
   children?: React.ReactNode
@@ -118,10 +128,22 @@ export function InvoiceDialog({
   const [description, setDescription] = useState("")
   const [base, setBase] = useState<number>(NaN)
   const [vatRate, setVatRate] = useState("21")
+  const [vatDeductibleRate, setVatDeductibleRate] = useState(defaultVatDeductibleRate)
   const [irpfRate, setIrpfRate] = useState(0)
+  const [costType, setCostType] = useState<CostType>("direct")
   const [file, setFile] = useState<InvoiceFileValue | null>(null)
 
   const calc = computeInvoice(base || 0, Number(vatRate), irpfRate || 0)
+  const deductibleRate = vatDeductibleRate || 0
+  const deductibleVat = deductibleVatAmount({
+    vatAmount: calc.vatAmount,
+    vatDeductibleRate: deductibleRate,
+  })
+  const imputable = invoiceCost({
+    baseAmount: base || 0,
+    vatAmount: calc.vatAmount,
+    vatDeductibleRate: deductibleRate,
+  })
   const linked = supplierId !== NONE ? suppliers.find((s) => s.id === supplierId) : undefined
 
   function reset() {
@@ -141,6 +163,8 @@ export function InvoiceDialog({
       setSupplierId(invoice.supplierId ?? NONE)
       setFiscal(fiscalFromInvoice(invoice))
       setVatRate(String(invoice.vatRate))
+      setVatDeductibleRate(invoice.vatDeductibleRate)
+      setCostType(invoice.costType)
       setIrpfRate(invoice.irpfRate)
       return
     }
@@ -148,7 +172,9 @@ export function InvoiceDialog({
     setSupplierId(pre?.id ?? NONE)
     setFiscal(pre ? fiscalFromSupplier(pre) : EMPTY)
     setVatRate(allowedRate(VAT_RATES, pre?.defaultVatRate, 21))
+    setVatDeductibleRate(defaultVatDeductibleRate)
     setIrpfRate(pre?.defaultIrpfRate ?? 0)
+    setCostType("direct")
   }
 
   // Reset en obrir (incl. obertura controlada que no passa per onOpenChange).
@@ -268,7 +294,9 @@ export function InvoiceDialog({
           supplierId: linked?.id ?? null,
           baseAmount: base,
           vatRate: Number(vatRate),
+          vatDeductibleRate,
           irpfRate,
+          costType,
           file,
         } as never,
         alloc,
@@ -449,7 +477,7 @@ export function InvoiceDialog({
 
             <FieldSet>
               <FieldLegend>Imports</FieldLegend>
-              <div className="grid gap-4 sm:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <Field>
                   <FieldLabel htmlFor="baseAmount">Base imposable *</FieldLabel>
                   <Input
@@ -478,6 +506,22 @@ export function InvoiceDialog({
                   <FieldDescription className="tabular-nums">{formatEuro(calc.vatAmount)}</FieldDescription>
                 </Field>
                 <Field>
+                  <FieldLabel htmlFor="vatDeductibleRate">IVA deduïble (%)</FieldLabel>
+                  <Input
+                    id="vatDeductibleRate"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    required
+                    value={Number.isNaN(vatDeductibleRate) ? "" : vatDeductibleRate}
+                    onChange={(e) => setVatDeductibleRate(e.target.valueAsNumber)}
+                  />
+                  <FieldDescription className="tabular-nums">
+                    {formatEuro(deductibleVat)} de l&apos;IVA
+                  </FieldDescription>
+                </Field>
+                <Field>
                   <FieldLabel htmlFor="irpfRate">IRPF (%)</FieldLabel>
                   <Input
                     id="irpfRate"
@@ -495,11 +539,27 @@ export function InvoiceDialog({
                   <FieldLabel>Total factura</FieldLabel>
                   <p className="flex h-8 items-center text-lg font-semibold tabular-nums">{formatEuro(calc.total)}</p>
                   <FieldDescription className="tabular-nums">
-                    Cost imputable {formatEuro(invoiceCost({ baseAmount: base || 0, vatAmount: calc.vatAmount }))}
+                    Cost imputable {formatEuro(imputable)}
                   </FieldDescription>
                 </Field>
               </div>
             </FieldSet>
+
+            <Field>
+              <FieldLabel>Tipus de cost</FieldLabel>
+              <Select value={costType} onValueChange={(v) => setCostType(v as CostType)}>
+                <SelectTrigger className="w-full sm:w-56" aria-label="Tipus de cost">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
+                  <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                Directe si el cost està vinculat al projecte; indirecte si és d&apos;estructura o suport.
+              </FieldDescription>
+            </Field>
 
             <FieldSet>
               <FieldLegend>Projectes</FieldLegend>

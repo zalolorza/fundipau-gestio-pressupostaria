@@ -95,6 +95,8 @@ const PROJECTS = [
     openedAt: "2025-01-01",
     closedAt: "2026-12-31",
     maxBudget: 85000,
+    directBudget: 70000,
+    indirectBudget: 15000,
     clients: [
       ["Ajuntament de Sant Pere de Vilallonga", 60],
       ["Fundació Horitzons Compartits", 40],
@@ -106,6 +108,8 @@ const PROJECTS = [
     openedAt: "2025-03-01",
     closedAt: null,
     maxBudget: 60000,
+    directBudget: 48000,
+    indirectBudget: 12000,
     clients: [
       ["Diputació de l'Empordà Interior", 40],
       ["Fons Comarcal per la Solidaritat", 35],
@@ -137,6 +141,8 @@ const PROJECTS = [
     openedAt: "2025-06-01",
     closedAt: null,
     maxBudget: 95000,
+    directBudget: 80000,
+    indirectBudget: 15000,
     clients: [
       ["Agència de Cooperació de Ponent", 70],
       ["Fundació Horitzons Compartits", 30],
@@ -310,6 +316,7 @@ async function main() {
         baseAmount: base,
         vatRate: sup.vat,
         irpfRate: sup.irpf,
+        costType: faker.number.float() < 0.2 ? "indirect" : "direct",
         ...computeInvoice(base, sup.vat, sup.irpf),
       })
     }
@@ -364,7 +371,12 @@ async function main() {
             (!project.openedAt || toMonth(project.openedAt) <= e.month) &&
             (!project.closedAt || project.closedAt >= e.month)
         )
-        .map(({ project, pct }) => ({ entryId: e.id, projectId: project.id, percentage: pct }))
+        .map(({ project, pct }) => ({
+          entryId: e.id,
+          projectId: project.id,
+          percentage: pct,
+          costType: (faker.number.float() < 0.15 ? "indirect" : "direct") as "direct" | "indirect",
+        }))
     )
     if (alloc.length) await db.insert(s.payrollEntryProjects).values(alloc)
   }

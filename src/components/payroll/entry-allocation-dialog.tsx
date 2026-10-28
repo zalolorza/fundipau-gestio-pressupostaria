@@ -73,6 +73,7 @@ export function EntryAllocationDialog({
             mode="max"
             itemLabel="projecte"
             emptyText="Sense assignar a cap projecte"
+            withCostType
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

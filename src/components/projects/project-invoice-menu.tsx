@@ -23,12 +23,14 @@ export function ProjectInvoiceMenu({
   current,
   projectOptions,
   suppliers,
+  defaultVatDeductibleRate,
 }: {
   projectId: string
   invoices: AssignableInvoice[]
   current: Record<string, number>
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  defaultVatDeductibleRate?: number
 }) {
   const [mode, setMode] = useState<"create" | "assign" | null>(null)
 
@@ -55,6 +57,7 @@ export function ProjectInvoiceMenu({
         projectOptions={projectOptions}
         suppliers={suppliers}
         allocations={[{ id: projectId, percentage: 100 }]}
+        defaultVatDeductibleRate={defaultVatDeductibleRate}
       />
       <AssignInvoiceDialog
         open={mode === "assign"}

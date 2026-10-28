@@ -183,6 +183,7 @@ function BulkEditForm({
                   mode="max"
                   itemLabel="projecte"
                   emptyText="Sense assignar a cap projecte"
+                  withCostType
                 />
               </>
             )}

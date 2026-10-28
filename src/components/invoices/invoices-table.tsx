@@ -25,8 +25,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { cn } from "@/lib/utils"
+import { COST_TYPE_LABELS } from "@/lib/cost-type"
 import { formatDate, formatEuro, round2 } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { invoiceFileHref } from "@/lib/invoice-file"
 import { bulkDeleteInvoices } from "@/server/actions"
 import type { InvoiceListItem, InvoiceSortKey, SupplierOption } from "@/server/queries"
@@ -81,10 +82,12 @@ export function InvoicesTable({
   invoices,
   projectOptions,
   suppliers,
+  defaultVatDeductibleRate,
 }: {
   invoices: InvoiceListItem[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  defaultVatDeductibleRate?: number
 }) {
   const { pending } = useInvoiceListNav()
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -171,6 +174,7 @@ export function InvoicesTable({
                 </TableHead>
                 <SortableHead label="Data" sortKey="data" />
                 <TableHead>Número</TableHead>
+                <TableHead>Tipus</TableHead>
                 <TableHead>Proveïdor</TableHead>
                 <TableHead>Descripció</TableHead>
                 <SortableHead label="Base" sortKey="base" align="right" />
@@ -185,7 +189,7 @@ export function InvoicesTable({
             <TableBody>
               {invoices.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={12} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={13} className="py-10 text-center text-muted-foreground">
                     No s&apos;ha trobat cap factura.
                   </TableCell>
                 </TableRow>
@@ -226,6 +230,11 @@ export function InvoicesTable({
                       </span>
                     </TableCell>
                     <TableCell>
+                      <Badge variant={inv.costType === "indirect" ? "outline" : "secondary"}>
+                        {COST_TYPE_LABELS[inv.costType]}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
                       <div className="font-medium">
                         {inv.supplier ? (
                           <Link href={`/proveidors/${inv.supplier.id}`} className="hover:text-primary hover:underline">
@@ -247,6 +256,9 @@ export function InvoicesTable({
                     <TableCell className="text-right text-muted-foreground tabular-nums">
                       {formatEuro(inv.vatAmount)}
                       <div className="text-xs">{inv.vatRate} %</div>
+                      {inv.vatDeductibleRate !== 100 && (
+                        <div className="text-xs">ded. {inv.vatDeductibleRate} %</div>
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground tabular-nums">
                       {inv.irpfAmount ? `−${formatEuro(inv.irpfAmount)}` : "—"}
@@ -286,7 +298,7 @@ export function InvoicesTable({
             {invoices.length > 0 && (
               <TableFooter>
                 <TableRow>
-                  <TableCell className="pl-4" colSpan={5}>
+                  <TableCell className="pl-4" colSpan={6}>
                     {invoices.length} factures
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{formatEuro(sum("baseAmount"))}</TableCell>
@@ -308,6 +320,7 @@ export function InvoicesTable({
         invoiceIds={selectedIds}
         projectOptions={projectOptions}
         suppliers={suppliers}
+        defaultVatDeductibleRate={defaultVatDeductibleRate}
         onDone={clearSelection}
       />
     </>

@@ -44,7 +44,7 @@ clients ──< project_clients >── projects ──< invoice_projects >─�
 - **Proveïdors**: una factura pot estar enllaçada a un proveïdor de la llista o no (proveïdors puntuals). Les dades fiscals es copien sempre a la factura, de manera que editar o eliminar un proveïdor no altera les factures ja registrades (en eliminar-lo, les factures queden "no enllaçades").
 - **Projecte → clients**: percentatges que **sumen sempre 100 %**.
 - **Factura → projectes** i **registre mensual de nòmina → projectes**: percentatges que sumen **com a màxim 100 %** (la resta queda "sense assignar" i surt a l'inici com a cost pendent).
-- **Cost imputable d'una factura** = base + IVA (l'IRPF és una retenció, no redueix el cost). Es defineix a `src/lib/invoice.ts` si cal canviar-ho.
+- **Cost imputable d'una factura** = base + IVA deduïble (percentatge de l'IVA de la factura; per defecte el dels Ajustos). L'IRPF és una retenció, no redueix el cost. Es defineix a `src/lib/invoice.ts`.
 - **Nòmines**: cada nòmina genera un registre per mes. En modificar una quantitat o una assignació, l'app pregunta si s'aplica **només a aquell mes**, **a aquell mes i els següents** o **a tots**.
 
 ### Factures a emetre (pàgina del client)

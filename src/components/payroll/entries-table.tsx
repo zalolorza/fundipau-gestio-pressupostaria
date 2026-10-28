@@ -29,7 +29,12 @@ type Entry = {
   month: string;
   amount: number;
   assigned: number;
-  allocations: { projectId: string; name: string; percentage: number }[];
+  allocations: {
+    projectId: string;
+    name: string;
+    percentage: number;
+    costType: "direct" | "indirect";
+  }[];
 };
 
 export function EntriesTable({
@@ -194,6 +199,7 @@ export function EntriesTable({
                       allocations={e.allocations.map((a) => ({
                         id: a.projectId,
                         percentage: a.percentage,
+                        costType: a.costType,
                       }))}
                       projectOptions={projectOptions}
                       open={allocOpenId === e.id}
@@ -206,6 +212,7 @@ export function EntriesTable({
                         {e.allocations.map((a) => (
                           <Badge key={a.projectId} variant="secondary">
                             {a.name} · {a.percentage} %
+                            {a.costType === "indirect" ? " · ind." : ""}
                           </Badge>
                         ))}
                         {e.assigned < 100 && (

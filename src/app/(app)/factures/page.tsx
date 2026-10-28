@@ -5,6 +5,8 @@ import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header"
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog"
 import { InvoicesBrowser } from "@/components/invoices/invoices-browser"
 import { Button } from "@/components/ui/button"
+import { getDefaultVatDeductibleRate } from "@/lib/app-settings"
+import { COST_TYPE_PARAMS, costTypeFromParam } from "@/lib/cost-type"
 import {
   invoiceAssignmentFilters,
   invoiceSortKeys,
@@ -22,6 +24,8 @@ const isSort = (v: unknown): v is InvoiceSortKey =>
   typeof v === "string" && (invoiceSortKeys as readonly string[]).includes(v)
 const isAssignment = (v: unknown): v is InvoiceAssignmentFilter =>
   typeof v === "string" && (invoiceAssignmentFilters as readonly string[]).includes(v)
+const isTipus = (v: unknown) =>
+  typeof v === "string" && (COST_TYPE_PARAMS as readonly string[]).includes(v) ? v : undefined
 
 export default async function InvoicesPage({ searchParams }: PageProps<"/factures">) {
   const sp = await searchParams
@@ -33,13 +37,15 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
     supplierId: isUuid(sp.proveidor),
     projectId: isUuid(sp.projecte),
     assignment: isAssignment(sp.assignacio) ? sp.assignacio : undefined,
+    costType: costTypeFromParam(isTipus(sp.tipus)),
     sort: isSort(sp.ordre) ? sp.ordre : undefined,
     dir: sp.dir === "asc" ? ("asc" as const) : sp.dir === "desc" ? ("desc" as const) : undefined,
   }
-  const [invoices, projects, suppliers] = await Promise.all([
+  const [invoices, projects, suppliers, defaultVatDeductibleRate] = await Promise.all([
     listInvoices(filters),
     getProjectOptions(),
     getSupplierOptions(),
+    getDefaultVatDeductibleRate(),
   ])
   const today = new Date().toISOString().slice(0, 10)
   const projectOptions = projects.map((p) => ({
@@ -53,7 +59,11 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
       <PageHeader crumbs={[{ label: "Costos" }, { label: "Factures de proveïdors" }]} />
       <PageBody>
         <PageTitle title="Factures de proveïdors" description="Factures rebudes i la seva imputació a projectes.">
-          <InvoiceDialog projectOptions={projectOptions} suppliers={suppliers}>
+          <InvoiceDialog
+            projectOptions={projectOptions}
+            suppliers={suppliers}
+            defaultVatDeductibleRate={defaultVatDeductibleRate}
+          >
             <Button>
               <PlusIcon /> Nova factura
             </Button>
@@ -64,6 +74,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
           suppliers={suppliers}
           projects={projects.map((p) => ({ id: p.id, name: p.name }))}
           projectOptions={projectOptions}
+          defaultVatDeductibleRate={defaultVatDeductibleRate}
         />
       </PageBody>
     </>

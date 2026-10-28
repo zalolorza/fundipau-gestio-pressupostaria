@@ -164,15 +164,37 @@ export const clients = pgTable("clients", {
 })
 
 /** Projectes */
-export const projects = pgTable("projects", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  description: text("description"),
-  openedAt: date("opened_at", { mode: "string" }),
-  closedAt: date("closed_at", { mode: "string" }),
-  maxBudget: money("max_budget").notNull().default(0),
-  ...timestamps,
-})
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    openedAt: date("opened_at", { mode: "string" }),
+    closedAt: date("closed_at", { mode: "string" }),
+    maxBudget: money("max_budget").notNull().default(0),
+    /** Part del pressupost per a costos directes (opcional; amb indirectBudget ha de sumar maxBudget). */
+    directBudget: money("direct_budget"),
+    /** Part del pressupost per a costos indirectes (opcional). */
+    indirectBudget: money("indirect_budget"),
+    ...timestamps,
+  },
+  (t) => [
+    check(
+      "projects_budget_split",
+      sql`(
+        (${t.directBudget} is null and ${t.indirectBudget} is null)
+        or (
+          ${t.directBudget} is not null
+          and ${t.indirectBudget} is not null
+          and ${t.directBudget} >= 0
+          and ${t.indirectBudget} >= 0
+          and ${t.directBudget} + ${t.indirectBudget} = ${t.maxBudget}
+        )
+      )`
+    ),
+  ]
+)
 
 /** Repartiment d'un projecte entre clients (ha de sumar 100%) */
 export const projectClients = pgTable(
@@ -236,9 +258,13 @@ export const supplierInvoices = pgTable(
     baseAmount: money("base_amount").notNull(),
     vatRate: pct("vat_rate").notNull().default(21),
     vatAmount: money("vat_amount").notNull(),
+    /** % de l'IVA de la factura que és deduïble (i s'inclou al cost imputable). */
+    vatDeductibleRate: pct("vat_deductible_rate").notNull().default(100),
     irpfRate: pct("irpf_rate").notNull().default(0),
     irpfAmount: money("irpf_amount").notNull(),
     total: money("total").notNull(),
+    /** Cost directe (vinculat al projecte) o indirecte (estructura / suport). */
+    costType: text("cost_type").notNull().default("direct").$type<"direct" | "indirect">(),
     // Arxiu adjunt (Vercel Blob privat). pathname per servir-lo via /api/invoices/file
     filePathname: text("file_pathname"),
     fileName: text("file_name"),
@@ -247,6 +273,7 @@ export const supplierInvoices = pgTable(
   (t) => [
     index("supplier_invoices_date_idx").on(t.issueDate),
     index("supplier_invoices_supplier_idx").on(t.supplierId),
+    check("supplier_invoices_cost_type", sql`${t.costType} in ('direct', 'indirect')`),
   ]
 )
 
@@ -310,10 +337,13 @@ export const payrollEntryProjects = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     percentage: pct("percentage").notNull(),
+    /** Cost directe o indirecte d'aquesta assignació al projecte. */
+    costType: text("cost_type").notNull().default("direct").$type<"direct" | "indirect">(),
   },
   (t) => [
     primaryKey({ columns: [t.entryId, t.projectId] }),
     check("payroll_entry_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+    check("payroll_entry_projects_cost_type", sql`${t.costType} in ('direct', 'indirect')`),
   ]
 )
 

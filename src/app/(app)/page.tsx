@@ -19,6 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getDefaultVatDeductibleRate } from "@/lib/app-settings";
 import { formatEuro, formatMonth } from "@/lib/format";
 import { currentMonth, endOfMonth } from "@/lib/months";
 import {
@@ -30,11 +31,12 @@ import {
 
 export default async function HomePage() {
   const month = currentMonth();
-  const [d, clientOptions, projects, suppliers] = await Promise.all([
+  const [d, clientOptions, projects, suppliers, defaultVatDeductibleRate] = await Promise.all([
     getDashboard(month),
     getClientOptions(),
     getProjectOptions(),
     getSupplierOptions(),
+    getDefaultVatDeductibleRate(),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const open = d.projects
@@ -85,6 +87,7 @@ export default async function HomePage() {
               <InvoiceDialog
                 projectOptions={projectOptions}
                 suppliers={suppliers}
+                defaultVatDeductibleRate={defaultVatDeductibleRate}
               >
                 <Button variant="default" size="sm">
                   <PlusIcon /> Nova factura
@@ -169,7 +172,7 @@ export default async function HomePage() {
                     </span>
                   </span>
                 </div>
-                <BudgetProgress value={p.progress} />
+                <BudgetProgress value={p.progress} breakdown={p.progressBreakdown} />
               </div>
             ))}
           </CardContent>

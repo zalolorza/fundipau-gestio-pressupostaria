@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getDefaultVatDeductibleRate } from "@/lib/app-settings"
 import { formatDate, formatEuro, round2 } from "@/lib/format"
 import { getProjectOptions, getSupplier, getSupplierOptions, listInvoices } from "@/server/queries"
 
@@ -34,11 +35,12 @@ export async function generateMetadata({ params }: PageProps<"/proveidors/[id]">
 export default async function SupplierPage({ params }: PageProps<"/proveidors/[id]">) {
   const { id } = await params
   if (!isUuid(id)) notFound()
-  const [supplier, invoices, projects, supplierOptions] = await Promise.all([
+  const [supplier, invoices, projects, supplierOptions, defaultVatDeductibleRate] = await Promise.all([
     getSupplier(id),
     listInvoices({ supplierId: id }),
     getProjectOptions(),
     getSupplierOptions(),
+    getDefaultVatDeductibleRate(),
   ])
   if (!supplier) notFound()
 
@@ -100,7 +102,12 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
             <CardTitle>Factures</CardTitle>
             <CardDescription>Factures enllaçades a aquest proveïdor.</CardDescription>
             <CardAction>
-              <InvoiceDialog projectOptions={projectOptions} suppliers={supplierOptions} defaultSupplierId={supplier.id}>
+              <InvoiceDialog
+                projectOptions={projectOptions}
+                suppliers={supplierOptions}
+                defaultSupplierId={supplier.id}
+                defaultVatDeductibleRate={defaultVatDeductibleRate}
+              >
                 <Button size="sm">
                   <PlusIcon /> Nova factura
                 </Button>

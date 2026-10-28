@@ -6,9 +6,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { round2 } from "@/lib/format"
 
-export type AllocationRow = { id: string; percentage: number }
+export type AllocationRow = { id: string; percentage: number; costType?: CostType }
 export type AllocationOption = { id: string; name: string; hint?: string; disabled?: boolean }
 
 export function allocationSum(rows: AllocationRow[]) {
@@ -32,6 +33,7 @@ export function AllocationEditor({
   mode,
   itemLabel,
   emptyText,
+  withCostType = false,
 }: {
   value: AllocationRow[]
   onChange: (rows: AllocationRow[]) => void
@@ -39,6 +41,8 @@ export function AllocationEditor({
   mode: "exact" | "max"
   itemLabel: string
   emptyText?: string
+  /** Mostra el selector directe/indirecte per fila (assignacions de nòmina). */
+  withCostType?: boolean
 }) {
   const sum = allocationSum(value)
   const error = allocationError(value, mode)
@@ -63,9 +67,9 @@ export function AllocationEditor({
         </p>
       )}
       {value.map((row, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={i} className="flex flex-wrap items-center gap-2">
           <Select value={row.id} onValueChange={(id) => update(i, { id })}>
-            <SelectTrigger className="min-w-0 flex-1">
+            <SelectTrigger className="min-w-0 flex-1 basis-40">
               <SelectValue placeholder={`Tria ${itemLabel}…`} />
             </SelectTrigger>
             <SelectContent>
@@ -77,6 +81,20 @@ export function AllocationEditor({
               ))}
             </SelectContent>
           </Select>
+          {withCostType && (
+            <Select
+              value={row.costType ?? "direct"}
+              onValueChange={(v) => update(i, { costType: v as CostType })}
+            >
+              <SelectTrigger className="w-32 shrink-0" aria-label="Tipus de cost">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
+                <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           <div className="relative w-24 shrink-0">
             <Input
               type="number"
@@ -111,7 +129,14 @@ export function AllocationEditor({
             variant="outline"
             size="sm"
             onClick={() =>
-              onChange([...value, { id: "", percentage: Math.max(0, round2((mode === "exact" ? 100 : 100) - sum)) }])
+              onChange([
+                ...value,
+                {
+                  id: "",
+                  percentage: Math.max(0, round2((mode === "exact" ? 100 : 100) - sum)),
+                  ...(withCostType ? { costType: "direct" as const } : {}),
+                },
+              ])
             }
             disabled={value.length >= options.length}
           >

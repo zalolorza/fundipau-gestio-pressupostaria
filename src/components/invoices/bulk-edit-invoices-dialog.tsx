@@ -18,7 +18,8 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { VAT_RATES } from "@/lib/invoice"
+import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
+import { DEFAULT_VAT_DEDUCTIBLE_RATE, VAT_RATES } from "@/lib/invoice"
 import { bulkUpdateInvoices } from "@/server/actions"
 import type { SupplierOption } from "@/server/queries"
 
@@ -46,6 +47,7 @@ export function BulkEditInvoicesDialog({
   invoiceIds,
   projectOptions,
   suppliers,
+  defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
   onDone,
 }: {
   open: boolean
@@ -53,6 +55,7 @@ export function BulkEditInvoicesDialog({
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  defaultVatDeductibleRate?: number
   onDone?: () => void
 }) {
   return (
@@ -73,6 +76,7 @@ export function BulkEditInvoicesDialog({
             invoiceIds={invoiceIds}
             projectOptions={projectOptions}
             suppliers={suppliers}
+            defaultVatDeductibleRate={defaultVatDeductibleRate}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
               onOpenChange(false)
@@ -89,29 +93,36 @@ function BulkEditForm({
   invoiceIds,
   projectOptions,
   suppliers,
+  defaultVatDeductibleRate,
   onCancel,
   onDone,
 }: {
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  defaultVatDeductibleRate: number
   onCancel: () => void
   onDone: () => void
 }) {
   const [pending, start] = useTransition()
   const [changeSupplier, setChangeSupplier] = useState(false)
   const [changeVat, setChangeVat] = useState(false)
+  const [changeVatDeductible, setChangeVatDeductible] = useState(false)
   const [changeIrpf, setChangeIrpf] = useState(false)
+  const [changeCostType, setChangeCostType] = useState(false)
   const [changeAlloc, setChangeAlloc] = useState(false)
   const [supplierId, setSupplierId] = useState(NONE)
   const [fiscal, setFiscal] = useState<Fiscal>(EMPTY)
   const [vatRate, setVatRate] = useState("21")
+  const [vatDeductibleRate, setVatDeductibleRate] = useState(defaultVatDeductibleRate)
   const [irpfRate, setIrpfRate] = useState(0)
+  const [costType, setCostType] = useState<CostType>("direct")
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
 
   const linked = supplierId !== NONE ? suppliers.find((s) => s.id === supplierId) : undefined
   const n = invoiceIds.length
-  const hasChange = changeSupplier || changeVat || changeIrpf || changeAlloc
+  const hasChange =
+    changeSupplier || changeVat || changeVatDeductible || changeIrpf || changeCostType || changeAlloc
 
   function onPickSupplier(id: string) {
     setSupplierId(id)
@@ -148,7 +159,9 @@ function BulkEditForm({
             }
           : undefined,
         vatRate: changeVat ? Number(vatRate) : undefined,
+        vatDeductibleRate: changeVatDeductible ? vatDeductibleRate : undefined,
         irpfRate: changeIrpf ? irpfRate : undefined,
+        costType: changeCostType ? costType : undefined,
         allocations: changeAlloc ? alloc : undefined,
       })
       if (!res.ok) return void toast.error(res.error)
@@ -263,6 +276,35 @@ function BulkEditForm({
 
           <FieldSet>
             <Field orientation="horizontal">
+              <Checkbox
+                id="bulk-vat-deductible"
+                checked={changeVatDeductible}
+                onCheckedChange={(v) => setChangeVatDeductible(v === true)}
+              />
+              <FieldLabel htmlFor="bulk-vat-deductible">Canviar l&apos;IVA deduïble</FieldLabel>
+            </Field>
+            {changeVatDeductible && (
+              <Field>
+                <FieldLabel htmlFor="bulk-vat-deductible-rate">IVA deduïble (%)</FieldLabel>
+                <Input
+                  id="bulk-vat-deductible-rate"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  required={changeVatDeductible}
+                  value={Number.isNaN(vatDeductibleRate) ? "" : vatDeductibleRate}
+                  onChange={(e) => setVatDeductibleRate(e.target.valueAsNumber)}
+                />
+                <FieldDescription>
+                  Percentatge de l&apos;IVA original que forma part del cost imputable de cada factura.
+                </FieldDescription>
+              </Field>
+            )}
+          </FieldSet>
+
+          <FieldSet>
+            <Field orientation="horizontal">
               <Checkbox id="bulk-irpf" checked={changeIrpf} onCheckedChange={(v) => setChangeIrpf(v === true)} />
               <FieldLabel htmlFor="bulk-irpf">Canviar l&apos;IRPF</FieldLabel>
             </Field>
@@ -280,6 +322,31 @@ function BulkEditForm({
                   onChange={(e) => setIrpfRate(e.target.valueAsNumber)}
                 />
                 <FieldDescription>Es recalcula la retenció i el total de cada factura.</FieldDescription>
+              </Field>
+            )}
+          </FieldSet>
+
+          <FieldSet>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="bulk-cost-type"
+                checked={changeCostType}
+                onCheckedChange={(v) => setChangeCostType(v === true)}
+              />
+              <FieldLabel htmlFor="bulk-cost-type">Canviar el tipus de cost</FieldLabel>
+            </Field>
+            {changeCostType && (
+              <Field>
+                <FieldLabel>Tipus</FieldLabel>
+                <Select value={costType} onValueChange={(v) => setCostType(v as CostType)}>
+                  <SelectTrigger className="w-full sm:w-56" aria-label="Tipus de cost">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
+                    <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
             )}
           </FieldSet>

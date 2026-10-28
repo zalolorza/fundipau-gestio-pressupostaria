@@ -16,9 +16,66 @@ import {
   suppliers,
   user,
 } from "@/db/schema"
+import type { CostType } from "@/lib/cost-type"
 import { round2 } from "@/lib/format"
 import { invoiceCost } from "@/lib/invoice"
 import { endOfMonth, toMonth } from "@/lib/months"
+
+export type ProjectCosts = {
+  invoices: number
+  payroll: number
+  total: number
+  direct: number
+  indirect: number
+  invoicesDirect: number
+  invoicesIndirect: number
+  payrollDirect: number
+  payrollIndirect: number
+}
+
+export type BudgetProgressBreakdown = {
+  direct: number
+  indirect: number
+}
+
+/** True si el projecte té pressupost desglossat en directe / indirecte. */
+export function hasBudgetSplit(p: {
+  directBudget: number | null
+  indirectBudget: number | null
+}): p is { directBudget: number; indirectBudget: number } {
+  return p.directBudget != null && p.indirectBudget != null
+}
+
+function progressPct(spent: number, budget: number) {
+  return budget > 0 ? (spent / budget) * 100 : 0
+}
+
+function projectProgress(
+  costs: ProjectCosts,
+  p: { maxBudget: number; directBudget: number | null; indirectBudget: number | null }
+) {
+  return {
+    progress: progressPct(costs.total, p.maxBudget),
+    progressBreakdown: hasBudgetSplit(p)
+      ? {
+          direct: progressPct(costs.direct, p.directBudget),
+          indirect: progressPct(costs.indirect, p.indirectBudget),
+        }
+      : undefined,
+  }
+}
+
+const emptyCosts = (): ProjectCosts => ({
+  invoices: 0,
+  payroll: 0,
+  total: 0,
+  direct: 0,
+  indirect: 0,
+  invoicesDirect: 0,
+  invoicesIndirect: 0,
+  payrollDirect: 0,
+  payrollIndirect: 0,
+})
 
 /* ------------------------------- Usuaris -------------------------------- */
 
@@ -93,31 +150,49 @@ async function costsByProject(projectIds?: string[], from?: string, to?: string)
     db
       .select({
         projectId: invoiceProjects.projectId,
-        cost: sql<string>`coalesce(sum((${supplierInvoices.baseAmount} + ${supplierInvoices.vatAmount}) * ${invoiceProjects.percentage} / 100), 0)`,
+        costType: supplierInvoices.costType,
+        cost: sql<string>`coalesce(sum((${supplierInvoices.baseAmount} + ${supplierInvoices.vatAmount} * ${supplierInvoices.vatDeductibleRate} / 100) * ${invoiceProjects.percentage} / 100), 0)`,
       })
       .from(invoiceProjects)
       .innerJoin(supplierInvoices, eq(supplierInvoices.id, invoiceProjects.invoiceId))
       .where(and(...invWhere))
-      .groupBy(invoiceProjects.projectId),
+      .groupBy(invoiceProjects.projectId, supplierInvoices.costType),
     db
       .select({
         projectId: payrollEntryProjects.projectId,
+        costType: payrollEntryProjects.costType,
         cost: sql<string>`coalesce(sum(${payrollEntries.amount} * ${payrollEntryProjects.percentage} / 100), 0)`,
       })
       .from(payrollEntryProjects)
       .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
       .where(and(...payWhere))
-      .groupBy(payrollEntryProjects.projectId),
+      .groupBy(payrollEntryProjects.projectId, payrollEntryProjects.costType),
   ])
 
-  const map = new Map<string, { invoices: number; payroll: number; total: number }>()
+  const map = new Map<string, ProjectCosts>()
   const get = (id: string) => {
-    if (!map.has(id)) map.set(id, { invoices: 0, payroll: 0, total: 0 })
+    if (!map.has(id)) map.set(id, emptyCosts())
     return map.get(id)!
   }
-  for (const r of inv) get(r.projectId).invoices = round2(Number(r.cost))
-  for (const r of pay) get(r.projectId).payroll = round2(Number(r.cost))
-  for (const v of map.values()) v.total = round2(v.invoices + v.payroll)
+  for (const r of inv) {
+    const c = get(r.projectId)
+    const amount = round2(Number(r.cost))
+    c.invoices = round2(c.invoices + amount)
+    if (r.costType === "indirect") c.invoicesIndirect = round2(c.invoicesIndirect + amount)
+    else c.invoicesDirect = round2(c.invoicesDirect + amount)
+  }
+  for (const r of pay) {
+    const c = get(r.projectId)
+    const amount = round2(Number(r.cost))
+    c.payroll = round2(c.payroll + amount)
+    if (r.costType === "indirect") c.payrollIndirect = round2(c.payrollIndirect + amount)
+    else c.payrollDirect = round2(c.payrollDirect + amount)
+  }
+  for (const v of map.values()) {
+    v.total = round2(v.invoices + v.payroll)
+    v.direct = round2(v.invoicesDirect + v.payrollDirect)
+    v.indirect = round2(v.invoicesIndirect + v.payrollIndirect)
+  }
   return map
 }
 
@@ -130,12 +205,12 @@ export async function listProjects() {
   })
   const costs = await costsByProject()
   return rows.map((p) => {
-    const c = costs.get(p.id) ?? { invoices: 0, payroll: 0, total: 0 }
+    const c = costs.get(p.id) ?? emptyCosts()
     return {
       ...p,
       clients: p.clients.map((pc) => ({ ...pc.client, percentage: pc.percentage })),
       costs: c,
-      progress: p.maxBudget > 0 ? (c.total / p.maxBudget) * 100 : 0,
+      ...projectProgress(c, p),
     }
   })
 }
@@ -168,6 +243,7 @@ export async function getProject(id: string) {
         personName: payrolls.personName,
         role: payrolls.role,
         percentage: payrollEntryProjects.percentage,
+        costType: payrollEntryProjects.costType,
       })
       .from(payrollEntryProjects)
       .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
@@ -216,7 +292,14 @@ export async function getProject(id: string) {
       personName: string
       role: string | null
       total: number
-      entries: { entryId: string; month: string; amount: number; percentage: number; imputed: number }[]
+      entries: {
+        entryId: string
+        month: string
+        amount: number
+        percentage: number
+        imputed: number
+        costType: CostType
+      }[]
     }
   >()
   for (const r of payrollRows) {
@@ -230,18 +313,25 @@ export async function getProject(id: string) {
       })
     const g = byPerson.get(r.payrollId)!
     const imputed = round2((r.amount * r.percentage) / 100)
-    g.entries.push({ entryId: r.entryId, month: r.month, amount: r.amount, percentage: r.percentage, imputed })
+    g.entries.push({
+      entryId: r.entryId,
+      month: r.month,
+      amount: r.amount,
+      percentage: r.percentage,
+      imputed,
+      costType: r.costType,
+    })
     g.total = round2(g.total + imputed)
   }
 
-  const c = costs.get(id) ?? { invoices: 0, payroll: 0, total: 0 }
+  const c = costs.get(id) ?? emptyCosts()
   return {
     ...project,
     clients: project.clients.map((pc) => ({ ...pc.client, percentage: pc.percentage })),
     invoices,
     payroll: [...byPerson.values()],
     costs: c,
-    progress: project.maxBudget > 0 ? (c.total / project.maxBudget) * 100 : 0,
+    ...projectProgress(c, project),
   }
 }
 
@@ -256,6 +346,7 @@ export async function getAssignableInvoices() {
       description: supplierInvoices.description,
       baseAmount: supplierInvoices.baseAmount,
       vatAmount: supplierInvoices.vatAmount,
+      vatDeductibleRate: supplierInvoices.vatDeductibleRate,
       assigned: sql<string>`coalesce(sum(${invoiceProjects.percentage}), 0)`,
     })
     .from(supplierInvoices)
@@ -431,6 +522,7 @@ export async function listInvoices(filters: {
   supplierId?: string
   projectId?: string
   assignment?: InvoiceAssignmentFilter
+  costType?: CostType
   sort?: InvoiceSortKey
   dir?: "asc" | "desc"
 }) {
@@ -454,6 +546,7 @@ export async function listInvoices(filters: {
             .where(eq(invoiceProjects.projectId, filters.projectId))
         )
       : undefined,
+    filters.costType ? eq(supplierInvoices.costType, filters.costType) : undefined,
     filters.from ? gte(supplierInvoices.issueDate, filters.from) : undefined,
     filters.to ? lte(supplierInvoices.issueDate, filters.to) : undefined,
     filters.q
@@ -610,7 +703,12 @@ export async function getPayroll(id: string) {
     ...p,
     entries: p.entries.map((e) => ({
       ...e,
-      allocations: e.projects.map((a) => ({ projectId: a.projectId, name: a.project.name, percentage: a.percentage })),
+      allocations: e.projects.map((a) => ({
+        projectId: a.projectId,
+        name: a.project.name,
+        percentage: a.percentage,
+        costType: a.costType,
+      })),
       assigned: round2(e.projects.reduce((s, a) => s + a.percentage, 0)),
     })),
   }
@@ -624,7 +722,7 @@ export async function getDashboard(month: string) {
     db
       .select({
         n: sql<number>`count(*)::int`,
-        cost: sql<string>`coalesce(sum(${supplierInvoices.baseAmount} + ${supplierInvoices.vatAmount}), 0)`,
+        cost: sql<string>`coalesce(sum(${supplierInvoices.baseAmount} + ${supplierInvoices.vatAmount} * ${supplierInvoices.vatDeductibleRate} / 100), 0)`,
       })
       .from(supplierInvoices)
       .where(and(gte(supplierInvoices.issueDate, month), lte(supplierInvoices.issueDate, endOfMonth(month)))),
@@ -637,7 +735,7 @@ export async function getDashboard(month: string) {
       .where(eq(payrollEntries.month, month)),
     db.execute<{ n: number; cost: string }>(sql`
       select count(*)::int as n,
-             coalesce(sum((i.base_amount + i.vat_amount) * (100 - coalesce(a.pct, 0)) / 100), 0) as cost
+             coalesce(sum((i.base_amount + i.vat_amount * i.vat_deductible_rate / 100) * (100 - coalesce(a.pct, 0)) / 100), 0) as cost
       from supplier_invoices i
       left join (select invoice_id, sum(percentage) as pct from invoice_projects group by invoice_id) a
         on a.invoice_id = i.id

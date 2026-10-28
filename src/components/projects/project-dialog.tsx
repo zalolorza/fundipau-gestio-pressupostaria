@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -20,7 +21,12 @@ import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { Project } from "@/db/schema"
+import { round2 } from "@/lib/format"
 import { saveProject } from "@/server/actions"
+
+function hasSplit(p?: Project) {
+  return p?.directBudget != null && p?.indirectBudget != null
+}
 
 export function ProjectDialog({
   project,
@@ -35,14 +41,40 @@ export function ProjectDialog({
 }) {
   const [open, setOpen] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>(clients ?? [])
+  const [split, setSplit] = useState(hasSplit(project))
+  const [maxBudget, setMaxBudget] = useState(String(project?.maxBudget ?? ""))
+  const [directBudget, setDirectBudget] = useState(
+    project?.directBudget != null ? String(project.directBudget) : ""
+  )
   const [pending, start] = useTransition()
   const router = useRouter()
+
+  function resetBudgetFields() {
+    setSplit(hasSplit(project))
+    setMaxBudget(String(project?.maxBudget ?? ""))
+    setDirectBudget(project?.directBudget != null ? String(project.directBudget) : "")
+  }
+
+  const max = Number(maxBudget)
+  const direct = Number(directBudget)
+  const indirect =
+    split && Number.isFinite(max) && Number.isFinite(direct) ? round2(Math.max(0, max - direct)) : null
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const err = allocationError(alloc, "exact")
     if (err) return void toast.error(`Clients: ${err}`)
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
+    if (split) {
+      if (!Number.isFinite(max) || !Number.isFinite(direct) || direct < 0 || direct > max) {
+        return void toast.error("El pressupost directe ha d'estar entre 0 i el pressupost màxim")
+      }
+      f.directBudget = String(direct)
+      f.indirectBudget = String(round2(max - direct))
+    } else {
+      f.directBudget = ""
+      f.indirectBudget = ""
+    }
     start(async () => {
       const res = await saveProject(project?.id ?? null, f as never, alloc)
       if (!res.ok) return void toast.error(res.error)
@@ -57,7 +89,10 @@ export function ProjectDialog({
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
-        if (o) setAlloc(clients ?? [])
+        if (o) {
+          setAlloc(clients ?? [])
+          resetBudgetFields()
+        }
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -94,10 +129,58 @@ export function ProjectDialog({
                   step="0.01"
                   min={0}
                   required
-                  defaultValue={project?.maxBudget ?? ""}
+                  value={maxBudget}
+                  onChange={(e) => setMaxBudget(e.target.value)}
                 />
               </Field>
             </div>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="budgetSplit"
+                checked={split}
+                onCheckedChange={(v) => {
+                  const on = v === true
+                  setSplit(on)
+                  if (on && !directBudget && Number.isFinite(max) && max > 0) {
+                    setDirectBudget(String(max))
+                  }
+                }}
+              />
+              <FieldLabel htmlFor="budgetSplit" className="font-normal">
+                Desglossar el pressupost en costes directes i indirectes
+              </FieldLabel>
+            </Field>
+            {split && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field>
+                  <FieldLabel htmlFor="directBudget">Pressupost directe (€)</FieldLabel>
+                  <Input
+                    id="directBudget"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={Number.isFinite(max) ? max : undefined}
+                    required={split}
+                    value={directBudget}
+                    onChange={(e) => setDirectBudget(e.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="indirectBudget">Pressupost indirecte (€)</FieldLabel>
+                  <Input
+                    id="indirectBudget"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    readOnly
+                    tabIndex={-1}
+                    value={indirect ?? ""}
+                    className="bg-muted"
+                  />
+                  <FieldDescription>Es calcula com a màxim − directe.</FieldDescription>
+                </Field>
+              </div>
+            )}
             <FieldSet>
               <FieldLegend>Clients</FieldLegend>
               <FieldDescription>Repartiment del finançament. Ha de sumar 100 %.</FieldDescription>

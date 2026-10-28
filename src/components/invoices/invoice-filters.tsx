@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { COST_TYPE_LABELS, COST_TYPE_PARAMS, costTypeFromParam, costTypeToParam } from "@/lib/cost-type"
 import { cn } from "@/lib/utils"
 
 const activeFilterClass = "bg-muted border-muted-foreground/20"
@@ -35,10 +36,11 @@ export function InvoiceFilters({
   const proveidor = params.get("proveidor")
   const projecte = params.get("projecte")
   const assignacio = params.get("assignacio")
+  const tipus = costTypeFromParam(params.get("tipus"))
   const des = params.get("des")
   const fins = params.get("fins")
   const qActive = Boolean(q.trim())
-  const hasFilters = qActive || des || fins || proveidor || projecte || assignacio
+  const hasFilters = qActive || des || fins || proveidor || projecte || assignacio || tipus
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -91,6 +93,23 @@ export function InvoiceFilters({
           <SelectItem value="parcial">Assignació parcial pendent</SelectItem>
         </SelectContent>
       </Select>
+      <Select
+        value={tipus ? costTypeToParam(tipus) : "all"}
+        onValueChange={(v) => setParam("tipus", v === "all" ? "" : v)}
+      >
+        <SelectTrigger className={cn("w-44", tipus && activeFilterClass)} aria-label="Tipus de cost">
+          <SelectValue placeholder="Tipus" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Tots els tipus</SelectItem>
+          <SelectSeparator />
+          {COST_TYPE_PARAMS.map((p) => (
+            <SelectItem key={p} value={p}>
+              {COST_TYPE_LABELS[costTypeFromParam(p)!]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <DatePicker
         className={cn("w-40", des && activeFilterClass)}
         aria-label="Des de"
@@ -113,7 +132,7 @@ export function InvoiceFilters({
           onClick={() => {
             setQ("")
             replaceParams((sp) => {
-              for (const key of ["q", "des", "fins", "proveidor", "projecte", "assignacio"]) sp.delete(key)
+              for (const key of ["q", "des", "fins", "proveidor", "projecte", "assignacio", "tipus"]) sp.delete(key)
             })
           }}
         >

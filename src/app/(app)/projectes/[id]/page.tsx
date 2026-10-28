@@ -23,6 +23,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getDefaultVatDeductibleRate } from "@/lib/app-settings";
+import { COST_TYPE_LABELS } from "@/lib/cost-type";
 import { formatDate, formatEuro, formatPct, round2 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -48,18 +50,33 @@ export default async function ProjectPage({
 }: PageProps<"/projectes/[id]">) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [project, clientOptions, invoices, payrolls, projects, suppliers] =
-    await Promise.all([
-      getProject(id),
-      getClientOptions(),
-      getAssignableInvoices(),
-      getPayrollOptions(),
-      getProjectOptions(),
-      getSupplierOptions(),
-    ]);
+  const [
+    project,
+    clientOptions,
+    invoices,
+    payrolls,
+    projects,
+    suppliers,
+    defaultVatDeductibleRate,
+  ] = await Promise.all([
+    getProject(id),
+    getClientOptions(),
+    getAssignableInvoices(),
+    getPayrollOptions(),
+    getProjectOptions(),
+    getSupplierOptions(),
+    getDefaultVatDeductibleRate(),
+  ]);
   if (!project) notFound();
 
   const remaining = round2(project.maxBudget - project.costs.total);
+  const budgetSplit =
+    project.directBudget != null && project.indirectBudget != null
+      ? {
+          direct: project.directBudget,
+          indirect: project.indirectBudget,
+        }
+      : null;
   const clientRows = project.clients.map((c) => ({
     id: c.id,
     percentage: c.percentage,
@@ -73,6 +90,7 @@ export default async function ProjectPage({
     payroll: _p,
     costs: _co,
     progress: _pr,
+    progressBreakdown: _pb,
     ...projectRow
   } = project;
   const today = new Date().toISOString().slice(0, 10);
@@ -118,7 +136,8 @@ export default async function ProjectPage({
               <CardTitle>Progrés del pressupost</CardTitle>
               <CardDescription>
                 Costos imputats (factures + nòmines) respecte al pressupost
-                màxim.
+                màxim
+                {budgetSplit ? ", desglossat en directe i indirecte" : ""}.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -143,7 +162,30 @@ export default async function ProjectPage({
                 </p>
               </div>
               <BudgetProgress value={project.progress} className="h-3" />
-              <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+              {budgetSplit && project.progressBreakdown && (
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <BudgetPart
+                    label={COST_TYPE_LABELS.direct}
+                    spent={project.costs.direct}
+                    budget={budgetSplit.direct}
+                    progress={project.progressBreakdown.direct}
+                  />
+                  <BudgetPart
+                    label={COST_TYPE_LABELS.indirect}
+                    spent={project.costs.indirect}
+                    budget={budgetSplit.indirect}
+                    progress={project.progressBreakdown.indirect}
+                  />
+                </div>
+              )}
+              <dl
+                className={cn(
+                  "grid gap-4 text-sm",
+                  budgetSplit
+                    ? "grid-cols-2 sm:grid-cols-4"
+                    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6",
+                )}
+              >
                 <Stat
                   label="Factures"
                   value={formatEuro(project.costs.invoices)}
@@ -152,6 +194,18 @@ export default async function ProjectPage({
                   label="Nòmines"
                   value={formatEuro(project.costs.payroll)}
                 />
+                {!budgetSplit && (
+                  <>
+                    <Stat
+                      label="Directes"
+                      value={formatEuro(project.costs.direct)}
+                    />
+                    <Stat
+                      label="Indirectes"
+                      value={formatEuro(project.costs.indirect)}
+                    />
+                  </>
+                )}
                 <Stat
                   label={remaining >= 0 ? "Disponible" : "Excés"}
                   value={formatEuro(Math.abs(remaining))}
@@ -211,6 +265,7 @@ export default async function ProjectPage({
                   current={current}
                   projectOptions={projectOptions}
                   suppliers={suppliers}
+                  defaultVatDeductibleRate={defaultVatDeductibleRate}
                 />
                 <AssignPayrollDialog
                   projectId={project.id}
@@ -246,6 +301,9 @@ export default async function ProjectPage({
               <AssignedPayroll
                 projectId={project.id}
                 groups={project.payroll}
+                payrolls={payrolls}
+                defaultFrom={project.openedAt}
+                defaultTo={project.closedAt}
               />
             </TabsContent>
           </Tabs>
@@ -268,6 +326,39 @@ function Stat({
     <div>
       <dt className="text-muted-foreground">{label}</dt>
       <dd className={cn("font-medium tabular-nums", className)}>{value}</dd>
+    </div>
+  );
+}
+
+function BudgetPart({
+  label,
+  spent,
+  budget,
+  progress,
+}: {
+  label: string;
+  spent: number;
+  budget: number;
+  progress: number;
+}) {
+  return (
+    <div className="min-w-0 space-y-2 rounded-lg border bg-muted/30 px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-2 text-sm">
+        <span className="font-medium">{label}</span>
+        <span
+          className={cn(
+            "tabular-nums",
+            progress > 100 ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {formatPct(round2(progress))}
+        </span>
+      </div>
+      <BudgetProgress value={progress} className="h-2" />
+      <p className="text-sm tabular-nums">
+        {formatEuro(spent)}
+        <span className="text-muted-foreground"> / {formatEuro(budget)}</span>
+      </p>
     </div>
   );
 }

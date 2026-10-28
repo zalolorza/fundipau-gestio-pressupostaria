@@ -55,7 +55,7 @@ export function ProjectsBrowser({ projects }: { projects: ProjectListItem[] }) {
               <TableHead>Període</TableHead>
               <TableHead className="text-right">Pressupost</TableHead>
               <TableHead className="text-right">Cost imputat</TableHead>
-              <TableHead className="w-48 pr-4">Progrés</TableHead>
+              <TableHead className="w-56 pr-4">Progrés</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -97,8 +97,12 @@ export function ProjectsBrowser({ projects }: { projects: ProjectListItem[] }) {
                   <TableCell className="text-right tabular-nums">{formatEuro(p.costs.total)}</TableCell>
                   <TableCell className="pr-4">
                     <div className="flex items-center gap-2">
-                      <BudgetProgress value={p.progress} />
-                      <span className="w-12 text-right text-xs tabular-nums">{Math.round(p.progress)} %</span>
+                      <div className="min-w-0 flex-1">
+                        <BudgetProgress value={p.progress} breakdown={p.progressBreakdown} />
+                      </div>
+                      <span className="w-12 shrink-0 self-start text-right text-xs tabular-nums">
+                        {Math.round(p.progress)} %
+                      </span>
                     </div>
                   </TableCell>
                 </InteractiveTableRow>
