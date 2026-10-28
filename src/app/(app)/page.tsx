@@ -1,8 +1,16 @@
-import { AlertTriangleIcon, ArrowRightIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowRightIcon,
+  ChevronRightIcon,
+  PlusIcon,
+} from "lucide-react";
 import Link from "next/link";
 
 import { BudgetProgress } from "@/components/app/budget-progress";
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header";
+import { InvoiceDialog } from "@/components/invoices/invoice-dialog";
+import { PayrollCreateDialog } from "@/components/payroll/payroll-create-dialog";
+import { ProjectDialog } from "@/components/projects/project-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,16 +21,32 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { formatEuro, formatMonth } from "@/lib/format";
-import { currentMonth } from "@/lib/months";
-import { getDashboard } from "@/server/queries";
+import { currentMonth, endOfMonth } from "@/lib/months";
+import {
+  getClientOptions,
+  getDashboard,
+  getProjectOptions,
+  getSupplierOptions,
+} from "@/server/queries";
 
 export default async function HomePage() {
   const month = currentMonth();
-  const d = await getDashboard(month);
+  const [d, clientOptions, projects, suppliers] = await Promise.all([
+    getDashboard(month),
+    getClientOptions(),
+    getProjectOptions(),
+    getSupplierOptions(),
+  ]);
   const today = new Date().toISOString().slice(0, 10);
   const open = d.projects
     .filter((p) => !p.closedAt || p.closedAt >= today)
     .sort((a, b) => b.progress - a.progress);
+  const projectOptions = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
+  }));
+  const monthInvoicesHref = `/factures?des=${month}&fins=${endOfMonth(month)}`;
 
   return (
     <>
@@ -38,21 +62,42 @@ export default async function HomePage() {
             label="Projectes oberts"
             value={String(d.openCount)}
             hint={`${d.clientCount} clients finançadors`}
+            href="/projectes"
+            action={
+              <ProjectDialog clientOptions={clientOptions}>
+                <Button variant="default" size="sm">
+                  <PlusIcon /> Afegir nou
+                </Button>
+              </ProjectDialog>
+            }
           />
           <Kpi
             label="Pressupost dels projectes oberts"
             value={formatEuro(d.budget)}
             hint={`${formatEuro(d.spent)} ja imputats (${d.budget ? Math.round((d.spent / d.budget) * 100) : 0} %)`}
+            href="/projectes"
           />
           <Kpi
             label={`Factures de ${formatMonth(month).toLowerCase()}`}
             value={formatEuro(d.month.invoices.cost)}
             hint={`${d.month.invoices.n} factures rebudes`}
+            href={monthInvoicesHref}
+            action={
+              <InvoiceDialog
+                projectOptions={projectOptions}
+                suppliers={suppliers}
+              >
+                <Button variant="default" size="sm">
+                  <PlusIcon /> Afegir nova
+                </Button>
+              </InvoiceDialog>
+            }
           />
           <Kpi
             label={`Nòmines de ${formatMonth(month).toLowerCase()}`}
             value={formatEuro(d.month.payroll.cost)}
             hint={`${d.month.payroll.n} persones`}
+            href="/nomines?filtre=actives"
           />
         </div>
 
@@ -139,20 +184,35 @@ function Kpi({
   label,
   value,
   hint,
+  href,
+  action,
 }: {
   label: string;
   value: string;
   hint?: string;
+  href: string;
+  action?: React.ReactNode;
 }) {
   return (
-    <Card className="gap-1 py-4">
+    <Card className="group/kpi relative gap-1 pt-4 transition-colors hover:bg-muted">
+      <Link href={href} className="absolute inset-0 z-0" aria-label={label} />
       <CardHeader className="px-4">
         <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl tabular-nums">{value}</CardTitle>
+        <CardTitle className="text-2xl tabular-nums transition-colors group-hover/kpi:text-primary">
+          {value}
+        </CardTitle>
+        <CardAction>
+          <ChevronRightIcon className="size-4 text-muted-foreground opacity-0 transition-opacity group-hover/kpi:opacity-100" />
+        </CardAction>
       </CardHeader>
-      {hint && (
-        <CardContent className="px-4 text-xs text-muted-foreground">
-          {hint}
+      {(hint || action) && (
+        <CardContent className="relative z-10 flex items-center justify-between gap-2 px-4">
+          {hint ? (
+            <p className="min-w-0 text-xs text-muted-foreground">{hint}</p>
+          ) : (
+            <span />
+          )}
+          {action}
         </CardContent>
       )}
     </Card>
