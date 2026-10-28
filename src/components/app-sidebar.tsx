@@ -5,6 +5,7 @@ import {
   ChevronsUpDownIcon,
   FileTextIcon,
   LogOutIcon,
+  SettingsIcon,
   TruckIcon,
   UserRoundIcon,
   UsersIcon,
@@ -56,7 +57,10 @@ const navBase = [
 
 const navAdmin = {
   title: "Administració",
-  items: [{ title: "Usuàries", url: "/usuaris", icon: UserRoundIcon }],
+  items: [
+    { title: "Usuàries", url: "/usuaries", icon: UserRoundIcon },
+    { title: "Ajustos", url: "/Ajustos", icon: SettingsIcon },
+  ],
 };
 
 export function AppSidebar({

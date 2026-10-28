@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, PaperclipIcon, PencilIcon, Trash2Icon, XIcon } from "lucide-react"
+import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, DownloadIcon, PencilIcon, Trash2Icon, XIcon } from "lucide-react"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useMemo, useState } from "react"
@@ -216,10 +216,11 @@ export function InvoicesTable({
                             target="_blank"
                             rel="noreferrer"
                             title={inv.fileName ?? "Arxiu"}
+                            download={inv.fileName ?? undefined}
                             className="text-muted-foreground hover:text-primary"
-                            aria-label={`Obre l'arxiu de ${inv.number}`}
+                            aria-label={`Descarrega l'arxiu de ${inv.number}`}
                           >
-                            <PaperclipIcon className="size-3.5" />
+                            <DownloadIcon className="size-3.5" />
                           </a>
                         ) : null}
                       </span>

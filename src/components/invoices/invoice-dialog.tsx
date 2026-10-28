@@ -21,11 +21,14 @@ import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet 
 import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Spinner } from "@/components/ui/spinner"
 import { Textarea } from "@/components/ui/textarea"
 import type { SupplierInvoice } from "@/db/schema"
 import { formatEuro } from "@/lib/format"
 import { computeInvoice, invoiceCost, VAT_RATES } from "@/lib/invoice"
+import type { ExtractedInvoiceFields } from "@/lib/invoice-extract-types"
 import { saveInvoice } from "@/server/actions"
+import { extractInvoiceFromPathname } from "@/server/invoice-extract-actions"
 import type { SupplierOption } from "@/server/queries"
 
 type Fiscal = {
@@ -43,6 +46,10 @@ const EMPTY: Fiscal = {
   supplierAddress: "",
   supplierPostalCode: "",
   supplierCity: "",
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10)
 }
 
 function fiscalFromInvoice(i: SupplierInvoice): Fiscal {
@@ -63,6 +70,14 @@ function fiscalFromSupplier(s: SupplierOption): Fiscal {
     supplierPostalCode: s.postalCode,
     supplierCity: s.city,
   }
+}
+
+function emptyStr(v: string | null | undefined) {
+  return !v?.trim()
+}
+
+function normTaxId(v: string | null | undefined) {
+  return (v ?? "").replace(/[\s.-]/g, "").toUpperCase()
 }
 
 /** Les rates que s'han de proposar segons el proveïdor (o la factura existent) */
@@ -93,10 +108,14 @@ export function InvoiceDialog({
   const open = controlledOpen ?? uncontrolledOpen
   const setOpen = onOpenChange ?? setUncontrolledOpen
   const [pending, start] = useTransition()
+  const [extracting, setExtracting] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
   const [supplierId, setSupplierId] = useState<string>(NONE)
   const [fiscal, setFiscal] = useState<Fiscal>(EMPTY)
   const [createSupplier, setCreateSupplier] = useState(false)
+  const [number, setNumber] = useState("")
+  const [issueDate, setIssueDate] = useState(todayISO())
+  const [description, setDescription] = useState("")
   const [base, setBase] = useState<number>(NaN)
   const [vatRate, setVatRate] = useState("21")
   const [irpfRate, setIrpfRate] = useState(0)
@@ -109,11 +128,15 @@ export function InvoiceDialog({
     setAlloc(allocations ?? [])
     setCreateSupplier(false)
     setBase(invoice?.baseAmount ?? NaN)
+    setNumber(invoice?.number ?? "")
+    setIssueDate(invoice?.issueDate ?? todayISO())
+    setDescription(invoice?.description ?? "")
     setFile(
       invoice?.filePathname
         ? { filePathname: invoice.filePathname, fileName: invoice.fileName ?? "arxiu" }
         : null
     )
+    setExtracting(false)
     if (invoice) {
       setSupplierId(invoice.supplierId ?? NONE)
       setFiscal(fiscalFromInvoice(invoice))
@@ -128,9 +151,16 @@ export function InvoiceDialog({
     setIrpfRate(pre?.defaultIrpfRate ?? 0)
   }
 
+  // Reset en obrir (incl. obertura controlada que no passa per onOpenChange).
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (open) reset()
+  }
+
   function handleOpenChange(next: boolean) {
+    if (!next && extracting) return
     setOpen(next)
-    if (next) reset()
   }
 
   function onPickSupplier(id: string) {
@@ -144,16 +174,96 @@ export function InvoiceDialog({
     setCreateSupplier(false)
   }
 
+  function applyExtracted(data: ExtractedInvoiceFields): boolean {
+    let filled = false
+
+    if (data.number && emptyStr(number)) {
+      setNumber(data.number)
+      filled = true
+    }
+    // La data del document preval (el valor per defecte és «avui»)
+    if (data.issueDate) {
+      setIssueDate(data.issueDate)
+      filled = true
+    }
+    if (data.description && emptyStr(description)) {
+      setDescription(data.description)
+      filled = true
+    }
+    const amountsEmpty = Number.isNaN(base)
+    if (data.baseAmount != null && amountsEmpty) {
+      setBase(data.baseAmount)
+      filled = true
+    }
+    // IVA / IRPF només si els imports encara no s'havien omplert
+    if (amountsEmpty && data.vatRate != null) {
+      setVatRate(String(data.vatRate))
+      filled = true
+    }
+    if (amountsEmpty && data.irpfRate != null) {
+      setIrpfRate(data.irpfRate)
+      filled = true
+    }
+
+    const taxNorm = normTaxId(data.supplierTaxId)
+    const match =
+      taxNorm &&
+      suppliers.find((s) => s.taxId && normTaxId(s.taxId) === taxNorm)
+
+    if (match && supplierId === NONE) {
+      onPickSupplier(match.id)
+      filled = true
+    } else {
+      const next = { ...fiscal }
+      let fiscalChanged = false
+      const fill = (k: keyof Fiscal, v: string | null | undefined) => {
+        if (!v?.trim() || !emptyStr(fiscal[k])) return
+        next[k] = v.trim()
+        fiscalChanged = true
+      }
+      fill("supplierName", data.supplierName)
+      fill("supplierTaxId", data.supplierTaxId)
+      fill("supplierAddress", data.supplierAddress)
+      fill("supplierPostalCode", data.supplierPostalCode)
+      fill("supplierCity", data.supplierCity)
+      if (fiscalChanged) {
+        setFiscal(next)
+        filled = true
+      }
+    }
+
+    return filled
+  }
+
+  async function onFileUploaded(next: InvoiceFileValue) {
+    setExtracting(true)
+    try {
+      const res = await extractInvoiceFromPathname(next.filePathname)
+      if (!res.ok) {
+        // Sense clau configurada: silenciós (l'arxiu ja s'ha pujat)
+        if (res.error.includes("no està configurada")) return
+        toast.error(res.error)
+        return
+      }
+      if (!res.data) return
+      if (applyExtracted(res.data)) toast.success("Hem omplert els camps a partir de l'arxiu")
+      else toast.message("No s'han trobat camps buits per omplir")
+    } finally {
+      setExtracting(false)
+    }
+  }
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const err = allocationError(alloc, "max")
     if (err) return void toast.error(`Projectes: ${err}`)
-    const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
     start(async () => {
       const res = await saveInvoice(
         invoice?.id ?? null,
         {
-          ...f,
+          number,
+          issueDate,
+          description,
           ...fiscal,
           supplierId: linked?.id ?? null,
           baseAmount: base,
@@ -187,17 +297,53 @@ export function InvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent
+        className="sm:max-w-3xl"
+        showCloseButton={!extracting}
+        onEscapeKeyDown={(e) => {
+          if (extracting) e.preventDefault()
+        }}
+        onPointerDownOutside={(e) => {
+          if (extracting) e.preventDefault()
+        }}
+        onInteractOutside={(e) => {
+          if (extracting) e.preventDefault()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{invoice ? `Factura ${invoice.number}` : "Nova factura de proveïdor"}</DialogTitle>
           <DialogDescription>Dades de la factura, del proveïdor i repartiment entre projectes.</DialogDescription>
         </DialogHeader>
-        <form id="invoice-form" onSubmit={onSubmit}>
+        <div className="relative">
+          {extracting && (
+            <div
+              className="absolute inset-0 z-10 bg-popover/55 backdrop-blur-[2px]"
+              aria-busy
+              aria-live="polite"
+            >
+              <div className="sticky top-0 flex h-[min(20rem,45svh)] flex-col items-center justify-center gap-3">
+                <Spinner className="size-8 text-primary" />
+                <p className="text-sm font-medium text-foreground">Llegint la factura…</p>
+              </div>
+            </div>
+          )}
+          <form
+            id="invoice-form"
+            onSubmit={onSubmit}
+            className={extracting ? "pointer-events-none select-none" : undefined}
+            inert={extracting}
+          >
           <FieldGroup>
             <div className="grid gap-4 sm:grid-cols-3">
               <Field>
                 <FieldLabel htmlFor="number">Número *</FieldLabel>
-                <Input id="number" name="number" required defaultValue={invoice?.number} />
+                <Input
+                  id="number"
+                  name="number"
+                  required
+                  value={number}
+                  onChange={(e) => setNumber(e.target.value)}
+                />
               </Field>
               <Field>
                 <FieldLabel htmlFor="issueDate">Data *</FieldLabel>
@@ -205,16 +351,29 @@ export function InvoiceDialog({
                   id="issueDate"
                   name="issueDate"
                   required
-                  defaultValue={invoice?.issueDate ?? new Date().toISOString().slice(0, 10)}
+                  value={issueDate}
+                  onChange={setIssueDate}
                 />
               </Field>
             </div>
             <Field>
               <FieldLabel htmlFor="description">Descripció</FieldLabel>
-              <Textarea id="description" name="description" rows={2} defaultValue={invoice?.description ?? ""} />
+              <Textarea
+                id="description"
+                name="description"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
             </Field>
 
-            <InvoiceFileField value={file} onChange={setFile} committedPathname={invoice?.filePathname} />
+            <InvoiceFileField
+              value={file}
+              onChange={setFile}
+              committedPathname={invoice?.filePathname}
+              onUploaded={onFileUploaded}
+              extracting={extracting}
+            />
 
             <FieldSet>
               <FieldLegend>Proveïdor</FieldLegend>
@@ -358,11 +517,12 @@ export function InvoiceDialog({
             </FieldSet>
           </FieldGroup>
         </form>
+        </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={extracting}>
             Cancel·la
           </Button>
-          <Button type="submit" form="invoice-form" disabled={pending}>
+          <Button type="submit" form="invoice-form" disabled={pending || extracting}>
             {pending ? "Desant…" : "Desa"}
           </Button>
         </DialogFooter>

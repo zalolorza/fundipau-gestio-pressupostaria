@@ -96,6 +96,16 @@ export const verification = pgTable(
   (t) => [index("verification_identifier_idx").on(t.identifier)]
 )
 
+/** Paràmetres d'aplicació (claus xifrades, etc.) — només administradores */
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+})
+
 /** Invitacions a crear un compte (enllaç d'un sol ús) */
 export const invitations = pgTable(
   "invitations",
@@ -371,3 +381,4 @@ export type Payroll = typeof payrolls.$inferSelect
 export type PayrollEntry = typeof payrollEntries.$inferSelect
 export type Invitation = typeof invitations.$inferSelect
 export type User = typeof user.$inferSelect
+export type AppSetting = typeof appSettings.$inferSelect

@@ -36,6 +36,13 @@
       "when": 1793189335083,
       "tag": "0004_invoice_files",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793195915778,
+      "tag": "0005_app_settings",
+      "breakpoints": true
     }
   ]
 }
