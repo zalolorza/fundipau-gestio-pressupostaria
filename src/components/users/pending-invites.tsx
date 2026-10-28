@@ -6,6 +6,7 @@ import { useTransition } from "react"
 import { toast } from "sonner"
 
 import { ConfirmButton } from "@/components/app/confirm-button"
+import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -63,7 +64,7 @@ export function PendingInvites({ invites }: { invites: PendingInvite[] }) {
           </TableHeader>
           <TableBody>
             {invites.map((inv) => (
-              <TableRow key={inv.id}>
+              <InteractiveTableRow key={inv.id} onActivate={() => void copy(inv.url)}>
                 <TableCell className="pl-4 font-medium">{inv.email}</TableCell>
                 <TableCell>{inv.invitedByName}</TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -99,7 +100,7 @@ export function PendingInvites({ invites }: { invites: PendingInvite[] }) {
                     </ConfirmButton>
                   </div>
                 </TableCell>
-              </TableRow>
+              </InteractiveTableRow>
             ))}
           </TableBody>
         </Table>

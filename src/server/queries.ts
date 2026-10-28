@@ -336,6 +336,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
         month: payrollEntries.month,
         amount: payrollEntries.amount,
         personName: payrolls.personName,
+        payrollId: payrolls.id,
       })
       .from(payrollEntryProjects)
       .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
@@ -359,6 +360,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
     projectPct: number
     clientPct: number
     amount: number
+    href: string | null
   }
 
   const result = links.map((l) => ({
@@ -384,6 +386,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
       projectPct: r.percentage,
       clientPct: pct.get(r.projectId)!,
       amount,
+      href: r.invoice.supplierId ? `/proveidors/${r.invoice.supplierId}` : `/projectes/${r.projectId}`,
     })
     g.invoices = round2(g.invoices + amount)
   }
@@ -399,6 +402,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
       projectPct: r.percentage,
       clientPct: pct.get(r.projectId)!,
       amount,
+      href: `/nomines/${r.payrollId}`,
     })
     g.payroll = round2(g.payroll + amount)
   }
@@ -411,13 +415,33 @@ export async function getClientBilling(clientId: string, from: string, to: strin
 
 /* -------------------------------- Factures ------------------------------- */
 
+export const invoiceSortKeys = ["data", "base", "iva", "irpf", "total", "assignat"] as const
+export type InvoiceSortKey = (typeof invoiceSortKeys)[number]
+export const invoiceAssignmentFilters = ["completa", "pendent", "parcial"] as const
+export type InvoiceAssignmentFilter = (typeof invoiceAssignmentFilters)[number]
+
+/** Subconsulta amb noms de taula explícits: el query API relacional reescriu malament les refs de drizzle. */
+const assignedPctSql = sql`coalesce((select sum(percentage) from invoice_projects where invoice_id = ${supplierInvoices.id}), 0)`
+
 export async function listInvoices(filters: {
   q?: string
   from?: string
   to?: string
   supplierId?: string
   projectId?: string
+  assignment?: InvoiceAssignmentFilter
+  sort?: InvoiceSortKey
+  dir?: "asc" | "desc"
 }) {
+  const assignmentWhere =
+    filters.assignment === "completa"
+      ? sql`${assignedPctSql} = 100`
+      : filters.assignment === "pendent"
+        ? sql`${assignedPctSql} = 0`
+        : filters.assignment === "parcial"
+          ? sql`${assignedPctSql} < 100` // parcial + 100% pendent
+          : undefined
+
   const where = [
     filters.supplierId ? eq(supplierInvoices.supplierId, filters.supplierId) : undefined,
     filters.projectId
@@ -434,22 +458,49 @@ export async function listInvoices(filters: {
     filters.q
       ? sql`(${supplierInvoices.number} ilike ${"%" + filters.q + "%"} or ${supplierInvoices.supplierName} ilike ${"%" + filters.q + "%"} or ${supplierInvoices.description} ilike ${"%" + filters.q + "%"} or ${supplierInvoices.supplierTaxId} ilike ${"%" + filters.q + "%"})`
       : undefined,
+    assignmentWhere,
   ].filter(Boolean)
+
+  const dir = filters.dir === "asc" ? asc : desc
+  const orderBy =
+    filters.sort === "base"
+      ? [dir(supplierInvoices.baseAmount), desc(supplierInvoices.createdAt)]
+      : filters.sort === "iva"
+        ? [dir(supplierInvoices.vatAmount), desc(supplierInvoices.createdAt)]
+        : filters.sort === "irpf"
+          ? [dir(supplierInvoices.irpfAmount), desc(supplierInvoices.createdAt)]
+          : filters.sort === "total"
+            ? [dir(supplierInvoices.total), desc(supplierInvoices.createdAt)]
+            : filters.sort === "assignat"
+              ? [desc(supplierInvoices.issueDate), desc(supplierInvoices.createdAt)] // ordenat en memòria després
+              : [dir(supplierInvoices.issueDate), desc(supplierInvoices.createdAt)]
 
   const rows = await db.query.supplierInvoices.findMany({
     where: where.length ? and(...where) : undefined,
-    orderBy: [desc(supplierInvoices.issueDate), desc(supplierInvoices.createdAt)],
+    orderBy,
     with: {
       supplier: { columns: { id: true, name: true } },
       projects: { with: { project: { columns: { id: true, name: true } } } },
     },
   })
-  return rows.map((r) => ({
-    ...r,
-    cost: invoiceCost(r),
-    allocations: r.projects.map((p) => ({ projectId: p.projectId, name: p.project.name, percentage: p.percentage })),
-    assigned: round2(r.projects.reduce((s, p) => s + p.percentage, 0)),
-  }))
+  const items = rows.map((r) => {
+    const cost = invoiceCost(r)
+    const assigned = round2(r.projects.reduce((s, p) => s + p.percentage, 0))
+    return {
+      ...r,
+      cost,
+      assigned,
+      assignedTotal: round2((cost * assigned) / 100),
+      allocations: r.projects.map((p) => ({ projectId: p.projectId, name: p.project.name, percentage: p.percentage })),
+    }
+  })
+
+  if (filters.sort === "assignat") {
+    const mul = filters.dir === "asc" ? 1 : -1
+    items.sort((a, b) => mul * (a.assigned - b.assigned) || b.issueDate.localeCompare(a.issueDate))
+  }
+
+  return items
 }
 
 export type InvoiceListItem = Awaited<ReturnType<typeof listInvoices>>[number]
@@ -540,6 +591,8 @@ export async function listPayrolls() {
     }
   })
 }
+
+export type PayrollListItem = Awaited<ReturnType<typeof listPayrolls>>[number]
 
 export async function getPayroll(id: string) {
   const p = await db.query.payrolls.findFirst({

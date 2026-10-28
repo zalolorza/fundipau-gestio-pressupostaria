@@ -5,6 +5,7 @@ import { useEffect, useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
+import { InvoiceFileField, type InvoiceFileValue } from "@/components/invoices/invoice-file-field"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -23,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { Textarea } from "@/components/ui/textarea"
 import type { SupplierInvoice } from "@/db/schema"
 import { formatEuro } from "@/lib/format"
-import { computeInvoice, invoiceCost, IRPF_RATES, VAT_RATES } from "@/lib/invoice"
+import { computeInvoice, invoiceCost, VAT_RATES } from "@/lib/invoice"
 import { saveInvoice } from "@/server/actions"
 import type { SupplierOption } from "@/server/queries"
 
@@ -98,27 +99,33 @@ export function InvoiceDialog({
   const [createSupplier, setCreateSupplier] = useState(false)
   const [base, setBase] = useState<number>(NaN)
   const [vatRate, setVatRate] = useState("21")
-  const [irpfRate, setIrpfRate] = useState("0")
+  const [irpfRate, setIrpfRate] = useState(0)
+  const [file, setFile] = useState<InvoiceFileValue | null>(null)
 
-  const calc = computeInvoice(base || 0, Number(vatRate), Number(irpfRate))
+  const calc = computeInvoice(base || 0, Number(vatRate), irpfRate || 0)
   const linked = supplierId !== NONE ? suppliers.find((s) => s.id === supplierId) : undefined
 
   function reset() {
     setAlloc(allocations ?? [])
     setCreateSupplier(false)
     setBase(invoice?.baseAmount ?? NaN)
+    setFile(
+      invoice?.filePathname
+        ? { filePathname: invoice.filePathname, fileName: invoice.fileName ?? "arxiu" }
+        : null
+    )
     if (invoice) {
       setSupplierId(invoice.supplierId ?? NONE)
       setFiscal(fiscalFromInvoice(invoice))
       setVatRate(String(invoice.vatRate))
-      setIrpfRate(String(invoice.irpfRate))
+      setIrpfRate(invoice.irpfRate)
       return
     }
     const pre = defaultSupplierId ? suppliers.find((s) => s.id === defaultSupplierId) : undefined
     setSupplierId(pre?.id ?? NONE)
     setFiscal(pre ? fiscalFromSupplier(pre) : EMPTY)
     setVatRate(allowedRate(VAT_RATES, pre?.defaultVatRate, 21))
-    setIrpfRate(allowedRate(IRPF_RATES, pre?.defaultIrpfRate, 0))
+    setIrpfRate(pre?.defaultIrpfRate ?? 0)
   }
 
   useEffect(() => {
@@ -133,7 +140,7 @@ export function InvoiceDialog({
     if (!s) return
     setFiscal(fiscalFromSupplier(s))
     setVatRate(allowedRate(VAT_RATES, s.defaultVatRate, 21))
-    setIrpfRate(allowedRate(IRPF_RATES, s.defaultIrpfRate, 0))
+    setIrpfRate(s.defaultIrpfRate)
     setCreateSupplier(false)
   }
 
@@ -151,7 +158,8 @@ export function InvoiceDialog({
           supplierId: linked?.id ?? null,
           baseAmount: base,
           vatRate: Number(vatRate),
-          irpfRate: Number(irpfRate),
+          irpfRate,
+          file,
         } as never,
         alloc,
         { createSupplier: !linked && createSupplier }
@@ -179,7 +187,7 @@ export function InvoiceDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
-      <DialogContent className="max-h-[92svh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{invoice ? `Factura ${invoice.number}` : "Nova factura de proveïdor"}</DialogTitle>
           <DialogDescription>Dades de la factura, del proveïdor i repartiment entre projectes.</DialogDescription>
@@ -205,6 +213,8 @@ export function InvoiceDialog({
               <FieldLabel htmlFor="description">Descripció</FieldLabel>
               <Textarea id="description" name="description" rows={2} defaultValue={invoice?.description ?? ""} />
             </Field>
+
+            <InvoiceFileField value={file} onChange={setFile} committedPathname={invoice?.filePathname} />
 
             <FieldSet>
               <FieldLegend>Proveïdor</FieldLegend>
@@ -309,19 +319,17 @@ export function InvoiceDialog({
                   <FieldDescription className="tabular-nums">{formatEuro(calc.vatAmount)}</FieldDescription>
                 </Field>
                 <Field>
-                  <FieldLabel>IRPF</FieldLabel>
-                  <Select value={irpfRate} onValueChange={setIrpfRate}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {[...new Set([...IRPF_RATES, Number(irpfRate)])].map((r) => (
-                        <SelectItem key={r} value={String(r)}>
-                          {r} %
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FieldLabel htmlFor="irpfRate">IRPF (%)</FieldLabel>
+                  <Input
+                    id="irpfRate"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    required
+                    value={Number.isNaN(irpfRate) ? "" : irpfRate}
+                    onChange={(e) => setIrpfRate(e.target.valueAsNumber)}
+                  />
                   <FieldDescription className="tabular-nums">−{formatEuro(calc.irpfAmount)}</FieldDescription>
                 </Field>
                 <Field>

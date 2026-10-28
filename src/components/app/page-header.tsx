@@ -60,5 +60,5 @@ export function PageTitle({
 }
 
 export function PageBody({ children }: { children: React.ReactNode }) {
-  return <div className="flex flex-1 flex-col gap-6 p-4 pt-0 md:px-6">{children}</div>
+  return <div className="flex min-w-0 flex-1 flex-col gap-6 p-4 pt-0 md:px-6">{children}</div>
 }

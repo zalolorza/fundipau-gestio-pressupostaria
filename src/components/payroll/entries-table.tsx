@@ -1,9 +1,11 @@
 "use client"
 
 import { PencilIcon, Trash2Icon } from "lucide-react"
+import { useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmButton } from "@/components/app/confirm-button"
+import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { AmountChangeDialog } from "@/components/payroll/amount-change-dialog"
 import { EntryAllocationDialog } from "@/components/payroll/entry-allocation-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -32,6 +34,8 @@ export function EntriesTable({
   projectOptions: { id: string; name: string; hint?: string }[]
   current: string
 }) {
+  const [allocOpenId, setAllocOpenId] = useState<string | null>(null)
+
   return (
     <Table>
       <TableHeader>
@@ -47,7 +51,11 @@ export function EntriesTable({
         {entries.map((e) => {
           const isCurrent = e.month === current
           return (
-            <TableRow key={e.id} className={cn(isCurrent && "bg-primary/5", e.month > current && "text-muted-foreground")}>
+            <InteractiveTableRow
+              key={e.id}
+              className={cn(isCurrent && "bg-primary/5", e.month > current && "text-muted-foreground")}
+              onActivate={() => setAllocOpenId(e.id)}
+            >
               <TableCell className="pl-4 whitespace-nowrap">
                 {formatMonth(e.month)}
                 {isCurrent && (
@@ -73,11 +81,10 @@ export function EntriesTable({
                   month={e.month}
                   allocations={e.allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
                   projectOptions={projectOptions}
+                  open={allocOpenId === e.id}
+                  onOpenChange={(o) => setAllocOpenId(o ? e.id : null)}
                 >
-                  <Button
-                    variant="ghost"
-                    className="h-auto flex-wrap justify-start gap-1 p-1 font-normal"
-                  >
+                  <Button variant="ghost" className="h-auto flex-wrap justify-start gap-1 p-1 font-normal">
                     {e.allocations.map((a) => (
                       <Badge key={a.projectId} variant="secondary">
                         {a.name} · {a.percentage} %
@@ -93,7 +100,7 @@ export function EntriesTable({
               </TableCell>
               <TableCell className="text-right tabular-nums">{formatEuro((e.amount * e.assigned) / 100)}</TableCell>
               <TableCell className="pr-4">
-                <div className="flex justify-end">
+                <div className="flex justify-end" data-row-ignore>
                   <ConfirmButton
                     title={`Eliminar ${formatMonth(e.month)}?`}
                     description="S'eliminarà aquest registre mensual i les seves assignacions."
@@ -108,7 +115,7 @@ export function EntriesTable({
                   </ConfirmButton>
                 </div>
               </TableCell>
-            </TableRow>
+            </InteractiveTableRow>
           )
         })}
       </TableBody>

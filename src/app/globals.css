@@ -2,8 +2,6 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -110,40 +108,6 @@
   --sidebar-accent-foreground: var(--brand-blue);
   --sidebar-border: color-mix(in srgb, var(--brand-black) 12%, transparent);
   --sidebar-ring: var(--brand-blue);
-}
-
-.dark {
-  --background: var(--brand-black);
-  --foreground: var(--brand-white);
-  --card: #1f1f1f;
-  --card-foreground: var(--brand-white);
-  --popover: #1f1f1f;
-  --popover-foreground: var(--brand-white);
-  --primary: #4f89c8;
-  --primary-foreground: var(--brand-white);
-  --secondary: #333333;
-  --secondary-foreground: var(--brand-white);
-  --muted: #333333;
-  --muted-foreground: #b0b0b0;
-  --accent: #333333;
-  --accent-foreground: var(--brand-white);
-  --destructive: #c45a74;
-  --border: color-mix(in srgb, var(--brand-white) 12%, transparent);
-  --input: color-mix(in srgb, var(--brand-white) 15%, transparent);
-  --ring: #4f89c8;
-  --chart-1: #4f89c8;
-  --chart-2: var(--brand-sky);
-  --chart-3: var(--brand-leaf);
-  --chart-4: var(--brand-yellow);
-  --chart-5: var(--brand-magenta);
-  --sidebar: #1f1f1f;
-  --sidebar-foreground: var(--brand-white);
-  --sidebar-primary: #4f89c8;
-  --sidebar-primary-foreground: var(--brand-white);
-  --sidebar-accent: #333333;
-  --sidebar-accent-foreground: var(--brand-white);
-  --sidebar-border: color-mix(in srgb, var(--brand-white) 12%, transparent);
-  --sidebar-ring: #4f89c8;
 }
 
 @layer base {

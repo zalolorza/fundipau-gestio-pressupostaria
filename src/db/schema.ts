@@ -229,6 +229,9 @@ export const supplierInvoices = pgTable(
     irpfRate: pct("irpf_rate").notNull().default(0),
     irpfAmount: money("irpf_amount").notNull(),
     total: money("total").notNull(),
+    // Arxiu adjunt (Vercel Blob privat). pathname per servir-lo via /api/invoices/file
+    filePathname: text("file_pathname"),
+    fileName: text("file_name"),
     ...timestamps,
   },
   (t) => [

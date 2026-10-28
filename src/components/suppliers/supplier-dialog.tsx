@@ -19,14 +19,14 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import type { Supplier } from "@/db/schema"
-import { IRPF_RATES, VAT_RATES } from "@/lib/invoice"
+import { VAT_RATES } from "@/lib/invoice"
 import { saveSupplier } from "@/server/actions"
 
 export function SupplierDialog({ supplier, children }: { supplier?: Supplier; children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
   const [pending, start] = useTransition()
   const [vat, setVat] = useState(String(supplier?.defaultVatRate ?? 21))
-  const [irpf, setIrpf] = useState(String(supplier?.defaultIrpfRate ?? 0))
+  const [irpf, setIrpf] = useState(supplier?.defaultIrpfRate ?? 0)
   const router = useRouter()
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -36,7 +36,7 @@ export function SupplierDialog({ supplier, children }: { supplier?: Supplier; ch
       const res = await saveSupplier(supplier?.id ?? null, {
         ...f,
         defaultVatRate: Number(vat),
-        defaultIrpfRate: Number(irpf),
+        defaultIrpfRate: irpf,
       } as never)
       if (!res.ok) return void toast.error(res.error)
       toast.success(supplier ? "Proveïdor actualitzat" : "Proveïdor creat")
@@ -54,12 +54,12 @@ export function SupplierDialog({ supplier, children }: { supplier?: Supplier; ch
         setOpen(o)
         if (o) {
           setVat(String(supplier?.defaultVatRate ?? 21))
-          setIrpf(String(supplier?.defaultIrpfRate ?? 0))
+          setIrpf(supplier?.defaultIrpfRate ?? 0)
         }
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{supplier ? "Edita el proveïdor" : "Nou proveïdor"}</DialogTitle>
           <DialogDescription>
@@ -140,19 +140,17 @@ export function SupplierDialog({ supplier, children }: { supplier?: Supplier; ch
                   </Select>
                 </Field>
                 <Field>
-                  <FieldLabel>IRPF</FieldLabel>
-                  <Select value={irpf} onValueChange={setIrpf}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {IRPF_RATES.map((r) => (
-                        <SelectItem key={r} value={String(r)}>
-                          {r} %
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FieldLabel htmlFor="defaultIrpfRate">IRPF (%)</FieldLabel>
+                  <Input
+                    id="defaultIrpfRate"
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="0.01"
+                    required
+                    value={Number.isNaN(irpf) ? "" : irpf}
+                    onChange={(e) => setIrpf(e.target.valueAsNumber)}
+                  />
                 </Field>
               </div>
             </FieldSet>

@@ -1,5 +1,6 @@
 "use server"
 
+import { del } from "@vercel/blob"
 import { and, eq, gte, inArray, ne, sql } from "drizzle-orm"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
@@ -20,7 +21,17 @@ import {
 import { requireSession } from "@/lib/auth"
 import { round2 } from "@/lib/format"
 import { computeInvoice } from "@/lib/invoice"
+import { isInvoiceFilePathname } from "@/lib/invoice-file"
 import { addMonths, endOfYear, monthRange, toMonth } from "@/lib/months"
+
+async function deleteBlobQuietly(pathname: string | null | undefined) {
+  if (!pathname || !isInvoiceFilePathname(pathname)) return
+  try {
+    await del(pathname)
+  } catch (e) {
+    console.error("No s'ha pogut eliminar l'arxiu del Blob:", e)
+  }
+}
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string }
 
@@ -210,6 +221,8 @@ export async function unassignInvoiceFromProject(projectId: string, invoiceId: s
 
 /**
  * Assigna una nòmina a un projecte per a un rang de mesos.
+ * Si manquen registres mensuals, els crea amb l'import del mes més proper
+ * (o la quantitat per defecte de la nòmina si encara no n'hi ha cap).
  * Valida que cap mes superi el 100 % assignat.
  */
 export async function assignPayrollToProject(
@@ -225,11 +238,50 @@ export async function assignPayrollToProject(
     const months = monthRange(fromMonth, toMonthValue)
     if (!months.length) throw new Error("El rang de mesos no és vàlid")
 
+    const payroll = await db.query.payrolls.findFirst({
+      where: eq(payrolls.id, payrollId),
+      columns: { id: true, monthlyAmount: true },
+    })
+    if (!payroll) throw new Error("Nòmina no trobada")
+
+    const existing = await db
+      .select({ id: payrollEntries.id, month: payrollEntries.month, amount: payrollEntries.amount })
+      .from(payrollEntries)
+      .where(eq(payrollEntries.payrollId, payrollId))
+    const byMonth = new Map(existing.map((e) => [e.month, e]))
+    const missing = months.filter((m) => !byMonth.has(m))
+
+    if (missing.length) {
+      const monthIndex = (m: string) => {
+        const [y, mo] = m.split("-").map(Number)
+        return y * 12 + (mo - 1)
+      }
+      const nearestAmount = (month: string) => {
+        if (!existing.length) return payroll.monthlyAmount
+        const target = monthIndex(month)
+        let best = existing[0]!
+        let bestDist = Math.abs(monthIndex(best.month) - target)
+        for (let i = 1; i < existing.length; i++) {
+          const e = existing[i]!
+          const dist = Math.abs(monthIndex(e.month) - target)
+          if (dist < bestDist || (dist === bestDist && e.month < best.month)) {
+            best = e
+            bestDist = dist
+          }
+        }
+        return best.amount
+      }
+      await db
+        .insert(payrollEntries)
+        .values(missing.map((month) => ({ payrollId, month, amount: nearestAmount(month) })))
+        .onConflictDoNothing()
+    }
+
     const entries = await db
       .select({ id: payrollEntries.id, month: payrollEntries.month })
       .from(payrollEntries)
       .where(and(eq(payrollEntries.payrollId, payrollId), inArray(payrollEntries.month, months)))
-    if (!entries.length) throw new Error("La nòmina no té registres mensuals en aquest període")
+    if (!entries.length) throw new Error("No s'han pogut crear els registres mensuals")
 
     const others = await db
       .select({
@@ -330,6 +382,18 @@ export async function deleteSupplier(id: string) {
 
 /* -------------------------------- Factures ------------------------------- */
 
+const invoiceFileSchema = z
+  .object({
+    filePathname: z.string().min(1),
+    fileName: z.string().trim().min(1),
+  })
+  .nullable()
+  .optional()
+  .transform((v) => v ?? null)
+  .refine((v) => v == null || isInvoiceFilePathname(v.filePathname), {
+    message: "Arxiu no vàlid",
+  })
+
 const invoiceSchema = z.object({
   number: z.string().trim().min(1, "El número és obligatori"),
   issueDate: z.string().min(1, "La data és obligatòria"),
@@ -348,6 +412,7 @@ const invoiceSchema = z.object({
   baseAmount: money,
   vatRate: z.coerce.number().min(0).max(100),
   irpfRate: z.coerce.number().min(0).max(100),
+  file: invoiceFileSchema,
 })
 export type InvoiceInput = z.input<typeof invoiceSchema>
 
@@ -359,7 +424,8 @@ export async function saveInvoice(
 ): Promise<ActionResult<{ id: string; supplierId: string | null }>> {
   await requireSession()
   try {
-    const data = invoiceSchema.parse(input)
+    const parsed = invoiceSchema.parse(input)
+    const { file, ...data } = parsed
     const list = allocationSchema.parse(allocations)
     checkAllocations(list, "max")
 
@@ -381,21 +447,37 @@ export async function saveInvoice(
       revalidatePath("/proveidors")
     }
 
-    const values = { ...data, ...computeInvoice(data.baseAmount, data.vatRate, data.irpfRate) }
+    const prev = id
+      ? await db.query.supplierInvoices.findFirst({
+          where: eq(supplierInvoices.id, id),
+          columns: { filePathname: true },
+        })
+      : undefined
+
+    const values = {
+      ...data,
+      ...computeInvoice(data.baseAmount, data.vatRate, data.irpfRate),
+      filePathname: file?.filePathname ?? null,
+      fileName: file?.fileName ?? null,
+    }
 
     let invoiceId = id
     if (id) await db.update(supplierInvoices).set(values).where(eq(supplierInvoices.id, id))
     else [{ id: invoiceId }] = await db.insert(supplierInvoices).values(values).returning({ id: supplierInvoices.id })
 
-    const del = db.delete(invoiceProjects).where(eq(invoiceProjects.invoiceId, invoiceId!))
+    const clearAlloc = db.delete(invoiceProjects).where(eq(invoiceProjects.invoiceId, invoiceId!))
     if (list.length)
       await db.batch([
-        del,
+        clearAlloc,
         db
           .insert(invoiceProjects)
           .values(list.map((a) => ({ invoiceId: invoiceId!, projectId: a.id, percentage: a.percentage }))),
       ])
-    else await del
+    else await clearAlloc
+
+    if (prev?.filePathname && prev.filePathname !== values.filePathname) {
+      await deleteBlobQuietly(prev.filePathname)
+    }
 
     revalidatePath("/factures")
     revalidatePath("/proveidors", "layout")
@@ -409,12 +491,153 @@ export async function saveInvoice(
 
 export async function deleteInvoice(id: string): Promise<ActionResult> {
   await requireSession()
+  const row = await db.query.supplierInvoices.findFirst({
+    where: eq(supplierInvoices.id, id),
+    columns: { filePathname: true },
+  })
   await db.delete(supplierInvoices).where(eq(supplierInvoices.id, id))
+  await deleteBlobQuietly(row?.filePathname)
   revalidatePath("/factures")
   revalidatePath("/proveidors", "layout")
   revalidatePath("/projectes", "layout")
   revalidatePath("/")
   return { ok: true }
+}
+
+const invoiceIdsSchema = z.array(z.string().uuid()).min(1, "Selecciona almenys una factura")
+
+const bulkInvoiceSupplierSchema = z.object({
+  supplierId: z
+    .string()
+    .uuid()
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null),
+  supplierName: z.string().trim().min(1, "El nom del proveïdor és obligatori"),
+  supplierTaxId: optText,
+  supplierAddress: optText,
+  supplierPostalCode: optText,
+  supplierCity: optText,
+})
+
+const bulkInvoicePatchSchema = z
+  .object({
+    supplier: bulkInvoiceSupplierSchema.optional(),
+    allocations: allocationSchema.optional(),
+    vatRate: z.coerce.number().min(0).max(100).optional(),
+    irpfRate: z.coerce.number().min(0).max(100).optional(),
+  })
+  .refine(
+    (p) =>
+      p.supplier !== undefined ||
+      p.allocations !== undefined ||
+      p.vatRate !== undefined ||
+      p.irpfRate !== undefined,
+    { message: "Indica què vols canviar" }
+  )
+export type BulkInvoicePatch = z.input<typeof bulkInvoicePatchSchema>
+
+/** Actualitza proveïdor, tipus IVA/IRPF i/o assignació a projectes de diverses factures */
+export async function bulkUpdateInvoices(
+  ids: string[],
+  patch: BulkInvoicePatch
+): Promise<ActionResult<{ count: number }>> {
+  await requireSession()
+  try {
+    const invoiceIds = invoiceIdsSchema.parse(ids)
+    const data = bulkInvoicePatchSchema.parse(patch)
+    if (data.allocations) checkAllocations(data.allocations, "max")
+
+    if (data.supplier) {
+      await db
+        .update(supplierInvoices)
+        .set({
+          supplierId: data.supplier.supplierId,
+          supplierName: data.supplier.supplierName,
+          supplierTaxId: data.supplier.supplierTaxId,
+          supplierAddress: data.supplier.supplierAddress,
+          supplierPostalCode: data.supplier.supplierPostalCode,
+          supplierCity: data.supplier.supplierCity,
+        })
+        .where(inArray(supplierInvoices.id, invoiceIds))
+    }
+
+    if (data.vatRate !== undefined || data.irpfRate !== undefined) {
+      const rows = await db
+        .select({
+          id: supplierInvoices.id,
+          baseAmount: supplierInvoices.baseAmount,
+          vatRate: supplierInvoices.vatRate,
+          irpfRate: supplierInvoices.irpfRate,
+        })
+        .from(supplierInvoices)
+        .where(inArray(supplierInvoices.id, invoiceIds))
+
+      if (rows.length) {
+        const updates = rows.map((row) => {
+          const vatRate = data.vatRate ?? row.vatRate
+          const irpfRate = data.irpfRate ?? row.irpfRate
+          return db
+            .update(supplierInvoices)
+            .set({
+              vatRate,
+              irpfRate,
+              ...computeInvoice(row.baseAmount, vatRate, irpfRate),
+            })
+            .where(eq(supplierInvoices.id, row.id))
+        })
+        await db.batch(updates as [typeof updates[number], ...typeof updates[number][]])
+      }
+    }
+
+    if (data.allocations) {
+      const clear = db.delete(invoiceProjects).where(inArray(invoiceProjects.invoiceId, invoiceIds))
+      if (data.allocations.length) {
+        await db.batch([
+          clear,
+          db.insert(invoiceProjects).values(
+            invoiceIds.flatMap((invoiceId) =>
+              data.allocations!.map((a) => ({
+                invoiceId,
+                projectId: a.id,
+                percentage: a.percentage,
+              }))
+            )
+          ),
+        ])
+      } else {
+        await clear
+      }
+    }
+
+    revalidatePath("/factures")
+    revalidatePath("/proveidors", "layout")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/")
+    return { ok: true, data: { count: invoiceIds.length } }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+export async function bulkDeleteInvoices(ids: string[]): Promise<ActionResult<{ count: number }>> {
+  await requireSession()
+  try {
+    const invoiceIds = invoiceIdsSchema.parse(ids)
+    const rows = await db
+      .select({ filePathname: supplierInvoices.filePathname })
+      .from(supplierInvoices)
+      .where(inArray(supplierInvoices.id, invoiceIds))
+    await db.delete(supplierInvoices).where(inArray(supplierInvoices.id, invoiceIds))
+    await Promise.all(rows.map((r) => deleteBlobQuietly(r.filePathname)))
+    revalidatePath("/factures")
+    revalidatePath("/proveidors", "layout")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/")
+    return { ok: true, data: { count: invoiceIds.length } }
+  } catch (e) {
+    return fail(e)
+  }
 }
 
 /* -------------------------------- Nòmines -------------------------------- */

@@ -61,7 +61,7 @@ export function ProjectDialog({
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{project ? "Edita el projecte" : "Nou projecte"}</DialogTitle>
           <DialogDescription>Dades bàsiques, pressupost i clients que el financen.</DialogDescription>

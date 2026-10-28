@@ -125,8 +125,9 @@ export function AssignPayrollDialog({
               onChange={(e) => setPercentage(e.target.valueAsNumber)}
             />
             <FieldDescription>
-              Si la persona ja estava assignada a aquest projecte en algun d&apos;aquests mesos, se&apos;n substitueix
-              el percentatge. Cap mes pot superar el 100 % entre tots els projectes.
+              Si manquen registres mensuals en aquest rang, es creen amb l&apos;import del mes més proper. Si la persona
+              ja estava assignada a aquest projecte, se&apos;n substitueix el percentatge. Cap mes pot superar el 100 %
+              entre tots els projectes.
             </FieldDescription>
           </Field>
         </FieldGroup>

@@ -2,9 +2,10 @@
 
 import { ChevronRightIcon, XIcon } from "lucide-react"
 import Link from "next/link"
-import { useTransition } from "react"
+import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,6 +34,7 @@ export function AssignedInvoices({
   suppliers: SupplierOption[]
 }) {
   const [pending, start] = useTransition()
+  const [editId, setEditId] = useState<string | null>(null)
   if (invoices.length === 0)
     return <p className="py-8 text-center text-sm text-muted-foreground">Cap factura assignada.</p>
   return (
@@ -52,7 +54,7 @@ export function AssignedInvoices({
         {invoices.map((i) => {
           const { cost: _c, percentage: _p, imputed: _im, allocations, ...invoice } = i
           return (
-            <TableRow key={i.id}>
+            <InteractiveTableRow key={i.id} onActivate={() => setEditId(i.id)}>
               <TableCell className="pl-4 whitespace-nowrap">{formatDate(i.issueDate)}</TableCell>
               <TableCell>
                 <InvoiceDialog
@@ -60,6 +62,8 @@ export function AssignedInvoices({
                   allocations={allocations}
                   projectOptions={projectOptions}
                   suppliers={suppliers}
+                  open={editId === i.id}
+                  onOpenChange={(o) => setEditId(o ? i.id : null)}
                 >
                   <Button variant="link" className="h-auto p-0 font-medium text-foreground">
                     {i.supplierName}
@@ -87,7 +91,7 @@ export function AssignedInvoices({
                   <XIcon />
                 </Button>
               </TableCell>
-            </TableRow>
+            </InteractiveTableRow>
           )
         })}
       </TableBody>
@@ -163,7 +167,7 @@ export function AssignedPayroll({ projectId, groups }: { projectId: string; grou
                 </TableHeader>
                 <TableBody>
                   {g.entries.map((e) => (
-                    <TableRow key={e.entryId}>
+                    <InteractiveTableRow key={e.entryId} href={`/nomines/${g.payrollId}`}>
                       <TableCell className="pl-12">{formatMonth(e.month)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatEuro(e.amount)}</TableCell>
                       <TableCell className="text-right tabular-nums">{formatPct(e.percentage)}</TableCell>
@@ -179,7 +183,7 @@ export function AssignedPayroll({ projectId, groups }: { projectId: string; grou
                           <XIcon />
                         </Button>
                       </TableCell>
-                    </TableRow>
+                    </InteractiveTableRow>
                   ))}
                 </TableBody>
               </Table>

@@ -1,13 +1,17 @@
 "use client"
 
 import { SearchIcon, XIcon } from "lucide-react"
-import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 
+import { useInvoiceListNav } from "@/components/invoices/invoice-list-nav"
 import { Button } from "@/components/ui/button"
 import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { cn } from "@/lib/utils"
+
+const activeFilterClass = "bg-muted border-muted-foreground/20"
 
 export function InvoiceFilters({
   suppliers,
@@ -16,28 +20,25 @@ export function InvoiceFilters({
   suppliers: { id: string; name: string }[]
   projects: { id: string; name: string }[]
 }) {
-  const router = useRouter()
-  const pathname = usePathname()
   const params = useSearchParams()
+  const { setParam, replaceParams } = useInvoiceListNav()
   const [q, setQ] = useState(params.get("q") ?? "")
-
-  const set = (key: string, value: string) => {
-    const sp = new URLSearchParams(params)
-    if (value) sp.set(key, value)
-    else sp.delete(key)
-    router.replace(`${pathname}?${sp.toString()}`, { scroll: false })
-  }
 
   useEffect(() => {
     const t = setTimeout(() => {
-      if ((params.get("q") ?? "") !== q) set("q", q)
+      if ((params.get("q") ?? "") !== q) setParam("q", q)
     }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q])
 
-  const hasFilters =
-    params.get("q") || params.get("des") || params.get("fins") || params.get("proveidor") || params.get("projecte")
+  const proveidor = params.get("proveidor")
+  const projecte = params.get("projecte")
+  const assignacio = params.get("assignacio")
+  const des = params.get("des")
+  const fins = params.get("fins")
+  const qActive = Boolean(q.trim())
+  const hasFilters = qActive || des || fins || proveidor || projecte || assignacio
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -45,13 +46,13 @@ export function InvoiceFilters({
         <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           placeholder="Cerca per número, proveïdor, NIF o descripció…"
-          className="pl-8"
+          className={cn("pl-8", qActive && activeFilterClass)}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      <Select value={params.get("proveidor") ?? "all"} onValueChange={(v) => set("proveidor", v === "all" ? "" : v)}>
-        <SelectTrigger className="w-56" aria-label="Proveïdor">
+      <Select value={proveidor ?? "all"} onValueChange={(v) => setParam("proveidor", v === "all" ? "" : v)}>
+        <SelectTrigger className={cn("w-56", proveidor && activeFilterClass)} aria-label="Proveïdor">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -64,8 +65,8 @@ export function InvoiceFilters({
           ))}
         </SelectContent>
       </Select>
-      <Select value={params.get("projecte") ?? "all"} onValueChange={(v) => set("projecte", v === "all" ? "" : v)}>
-        <SelectTrigger className="w-56" aria-label="Projecte">
+      <Select value={projecte ?? "all"} onValueChange={(v) => setParam("projecte", v === "all" ? "" : v)}>
+        <SelectTrigger className={cn("w-56", projecte && activeFilterClass)} aria-label="Projecte">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -78,20 +79,32 @@ export function InvoiceFilters({
           ))}
         </SelectContent>
       </Select>
+      <Select value={assignacio ?? "all"} onValueChange={(v) => setParam("assignacio", v === "all" ? "" : v)}>
+        <SelectTrigger className={cn("w-56", assignacio && activeFilterClass)} aria-label="Assignació">
+          <SelectValue placeholder="Assignació" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Totes les assignacions</SelectItem>
+          <SelectSeparator />
+          <SelectItem value="completa">Assignació completa</SelectItem>
+          <SelectItem value="pendent">Assignació del 100% pendent</SelectItem>
+          <SelectItem value="parcial">Assignació parcial pendent</SelectItem>
+        </SelectContent>
+      </Select>
       <DatePicker
-        className="w-40"
+        className={cn("w-40", des && activeFilterClass)}
         aria-label="Des de"
         placeholder="Des de"
-        value={params.get("des") ?? ""}
-        onChange={(v) => set("des", v)}
+        value={des ?? ""}
+        onChange={(v) => setParam("des", v)}
       />
       <span className="text-sm text-muted-foreground">–</span>
       <DatePicker
-        className="w-40"
+        className={cn("w-40", fins && activeFilterClass)}
         aria-label="Fins a"
         placeholder="Fins a"
-        value={params.get("fins") ?? ""}
-        onChange={(v) => set("fins", v)}
+        value={fins ?? ""}
+        onChange={(v) => setParam("fins", v)}
       />
       {hasFilters && (
         <Button
@@ -99,7 +112,9 @@ export function InvoiceFilters({
           size="sm"
           onClick={() => {
             setQ("")
-            router.replace(pathname)
+            replaceParams((sp) => {
+              for (const key of ["q", "des", "fins", "proveidor", "projecte", "assignacio"]) sp.delete(key)
+            })
           }}
         >
           <XIcon /> Neteja

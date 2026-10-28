@@ -5,7 +5,7 @@ import { notFound } from "next/navigation"
 
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header"
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog"
-import { InvoiceRowActions } from "@/components/invoices/invoice-row-actions"
+import { InvoiceTableRow } from "@/components/invoices/invoice-table-row"
 import { SupplierActions } from "@/components/suppliers/supplier-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -132,7 +132,13 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
               {invoices.map((inv) => {
                 const { projects: _p, supplier: _s, allocations, assigned, cost: _c, ...row } = inv
                 return (
-                  <TableRow key={inv.id}>
+                  <InvoiceTableRow
+                    key={inv.id}
+                    invoice={row}
+                    allocations={allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
+                    projectOptions={projectOptions}
+                    suppliers={supplierOptions}
+                  >
                     <TableCell className="pl-4 whitespace-nowrap">{formatDate(inv.issueDate)}</TableCell>
                     <TableCell className="font-mono text-xs">{inv.number}</TableCell>
                     <TableCell className="max-w-64 truncate text-muted-foreground">{inv.description}</TableCell>
@@ -159,15 +165,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="pr-4">
-                      <InvoiceRowActions
-                        invoice={row}
-                        allocations={allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
-                        projectOptions={projectOptions}
-                        suppliers={supplierOptions}
-                      />
-                    </TableCell>
-                  </TableRow>
+                  </InvoiceTableRow>
                 )
               })}
             </TableBody>

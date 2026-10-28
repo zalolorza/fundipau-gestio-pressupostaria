@@ -10,11 +10,9 @@ import {
   UsersIcon,
   WalletIcon,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as React from "react";
-import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -27,15 +25,16 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "@/components/ui/sidebar";
 import { signOut } from "@/lib/auth-client";
+import { Logo } from "./brand/logo";
+import { Separator } from "./ui/separator";
 
 const navBase = [
   {
@@ -73,23 +72,23 @@ export function AppSidebar({
   const navMain = user.isAdmin ? [...navBase, navAdmin] : navBase;
 
   return (
-    <Sidebar variant="floating" {...props}>
+    <Sidebar collapsible="icon" variant="floating" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild className="h-auto py-2">
-              <Link href="/" className="flex items-center gap-4">
-                <Image
-                  src="/logo.svg"
-                  alt="Fundipau"
-                  width={56}
-                  height={45}
-                  priority
+            <SidebarMenuButton size="lg" asChild tooltip="Inici">
+              <Link href="/" className="flex items-center gap-2 p-2">
+                <Logo
+                  className="w-10! ml-1 block h-auto! my-2 max-w-[calc(100%-8px)]"
+                  variant="icon"
                 />
-                <Separator orientation="vertical" className="bg-primary/50" />
-                <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="text-xs font-mediu max-w-[10em] text-primary py-1">
-                    Gestió pressupostària de projectes
+                <Separator orientation="vertical" className="bg-primary/70" />
+                <div className="grid flex-1 text-left text-sm leading-tight">
+                  <span className="truncate text-xs font-medium text-primary">
+                    Gestió pressupostària
+                  </span>
+                  <span className="truncate text-xs font-medium text-primary">
+                    de projectes
                   </span>
                 </div>
               </Link>
@@ -98,32 +97,31 @@ export function AppSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu className="gap-2">
-            {navMain.map((group) => (
-              <SidebarMenuItem key={group.title}>
-                <SidebarMenuButton className="pointer-events-none text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  {group.title}
-                </SidebarMenuButton>
-                <SidebarMenuSub className="ml-0 border-l-0 px-1.5">
-                  {group.items.map((item) => (
-                    <SidebarMenuSubItem key={item.url}>
-                      <SidebarMenuSubButton
-                        asChild
-                        isActive={isActive(item.url)}
-                      >
-                        <Link href={item.url}>
-                          <item.icon />
-                          {item.title}
-                        </Link>
-                      </SidebarMenuSubButton>
-                    </SidebarMenuSubItem>
-                  ))}
-                </SidebarMenuSub>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        {navMain.map((group) => (
+          <SidebarGroup key={group.title}>
+            <SidebarGroupLabel className="text-xs font-medium tracking-wide uppercase">
+              {group.title}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map((item) => (
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive(item.url)}
+                      tooltip={item.title}
+                    >
+                      <Link href={item.url}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
@@ -133,7 +131,8 @@ export function AppSidebar({
                 <SidebarMenuButton
                   size="lg"
                   isActive={pathname.startsWith("/compte")}
-                  title="El meu compte"
+                  tooltip="El meu compte"
+                  className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
                 >
                   <Avatar className="rounded-lg after:rounded-lg">
                     <AvatarFallback className="rounded-lg bg-primary/10 text-xs font-bold text-primary">
@@ -145,10 +144,8 @@ export function AppSidebar({
                         .toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
-                  <div className="flex min-w-0 flex-1 flex-col leading-tight">
-                    <span className="truncate text-sm font-medium">
-                      {user.name}
-                    </span>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-medium">{user.name}</span>
                     <span className="truncate text-xs text-muted-foreground">
                       {user.email}
                     </span>
@@ -158,9 +155,9 @@ export function AppSidebar({
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 className="w-(--radix-dropdown-menu-trigger-width) min-w-56"
-                side="top"
-                align="start"
-                sideOffset={8}
+                side="right"
+                align="end"
+                sideOffset={4}
               >
                 <DropdownMenuItem asChild>
                   <Link href="/compte">

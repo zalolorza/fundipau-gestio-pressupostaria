@@ -23,15 +23,21 @@ export function EntryAllocationDialog({
   month,
   allocations,
   projectOptions,
+  open: controlledOpen,
+  onOpenChange,
   children,
 }: {
   payrollId: string
   month: string
   allocations: AllocationRow[]
   projectOptions: { id: string; name: string; hint?: string }[]
-  children: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  children?: React.ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
+  const setOpen = onOpenChange ?? setUncontrolledOpen
   const [scopeOpen, setScopeOpen] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>(allocations)
   const [pending, start] = useTransition()
@@ -54,7 +60,7 @@ export function EntryAllocationDialog({
           if (o) setAlloc(allocations)
         }}
       >
-        <DialogTrigger asChild>{children}</DialogTrigger>
+        {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>Projectes · {formatMonth(month)}</DialogTitle>

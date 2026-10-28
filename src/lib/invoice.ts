@@ -17,4 +17,3 @@ export function invoiceCost(inv: { baseAmount: number; vatAmount: number }) {
 }
 
 export const VAT_RATES = [21, 10, 4, 0]
-export const IRPF_RATES = [0, 7, 15, 19]

@@ -42,7 +42,7 @@ export function ClientDialog({ client, children }: { client?: Client; children: 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{client ? "Edita el client" : "Nou client"}</DialogTitle>
           <DialogDescription>Nom, dades fiscals i notes del client.</DialogDescription>

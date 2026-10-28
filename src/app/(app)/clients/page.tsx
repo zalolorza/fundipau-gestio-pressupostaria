@@ -2,6 +2,7 @@ import { PlusIcon } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 
+import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header"
 import { ClientDialog } from "@/components/clients/client-dialog"
 import { Badge } from "@/components/ui/badge"
@@ -45,7 +46,7 @@ export default async function ClientsPage() {
                 </TableRow>
               )}
               {clients.map((c) => (
-                <TableRow key={c.id}>
+                <InteractiveTableRow key={c.id} href={`/clients/${c.id}`}>
                   <TableCell className="pl-4 font-medium">
                     <Link href={`/clients/${c.id}`} className="hover:text-primary hover:underline">
                       {c.name}
@@ -63,7 +64,7 @@ export default async function ClientsPage() {
                     </div>
                   </TableCell>
                   <TableCell className="max-w-xs truncate pr-4 text-muted-foreground">{c.notes ?? ""}</TableCell>
-                </TableRow>
+                </InteractiveTableRow>
               ))}
             </TableBody>
           </Table>

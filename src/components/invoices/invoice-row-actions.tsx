@@ -14,15 +14,26 @@ export function InvoiceRowActions({
   allocations,
   projectOptions,
   suppliers,
+  open,
+  onOpenChange,
 }: {
   invoice: SupplierInvoice
   allocations: { id: string; percentage: number }[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: React.ComponentProps<typeof InvoiceDialog>["suppliers"]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
   return (
-    <div className="flex justify-end gap-1">
-      <InvoiceDialog invoice={invoice} allocations={allocations} projectOptions={projectOptions} suppliers={suppliers}>
+    <div className="flex justify-end gap-1" data-row-ignore>
+      <InvoiceDialog
+        invoice={invoice}
+        allocations={allocations}
+        projectOptions={projectOptions}
+        suppliers={suppliers}
+        open={open}
+        onOpenChange={onOpenChange}
+      >
         <Button variant="ghost" size="icon-sm" aria-label="Edita">
           <PencilIcon />
         </Button>

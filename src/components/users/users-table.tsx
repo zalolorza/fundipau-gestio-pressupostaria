@@ -6,6 +6,7 @@ import { useTransition } from "react"
 import { toast } from "sonner"
 
 import { ConfirmButton } from "@/components/app/confirm-button"
+import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -53,6 +54,15 @@ export function UsersTable({
     })
   }
 
+  async function copyEmail(email: string) {
+    try {
+      await navigator.clipboard.writeText(email)
+      toast.success("Correu copiat")
+    } catch {
+      toast.error("No s’ha pogut copiar el correu")
+    }
+  }
+
   return (
     <Card className="py-0">
       <Table>
@@ -77,7 +87,7 @@ export function UsersTable({
             const admin = isAdminRole(u.role)
             const isSelf = u.id === currentUserId
             return (
-              <TableRow key={u.id}>
+              <InteractiveTableRow key={u.id} onActivate={() => void copyEmail(u.email)}>
                 <TableCell className="pl-4 font-medium">
                   <div className="flex items-center gap-2">
                     {u.name}
@@ -124,7 +134,7 @@ export function UsersTable({
                     </ConfirmButton>
                   )}
                 </TableCell>
-              </TableRow>
+              </InteractiveTableRow>
             )
           })}
         </TableBody>

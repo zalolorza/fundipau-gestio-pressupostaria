@@ -27,6 +27,8 @@ Obre http://localhost:3000 i entra amb **admin@fundipau.org / fundipau2026** (us
 | `BETTER_AUTH_SECRET` | Clau de signatura de sessions (`openssl rand -base64 32`) |
 | `BETTER_AUTH_URL` | URL pública de l'app |
 | `ALLOW_SIGNUP` | `true` per habilitar `/registre`. Per defecte desactivat |
+| `BLOB_READ_WRITE_TOKEN` | Token de lectura/escriptura del Vercel Blob (store **privat**) |
+| `BLOB_STORE_ID` | ID del Blob store (opcional en local si el token ja l'inclou) |
 
 ## Model de dades
 
@@ -60,6 +62,7 @@ src/
   app/(app)/         pàgines amb sessió (inici, projectes, clients, factures, proveidors, nomines)
   app/(auth)/        login i registre
   app/api/auth/      endpoint de Better Auth
+  app/api/invoices/  upload i delivery d'arxius (Blob privat)
   components/app/    components compartits (editor de percentatges, diàleg d'abast…)
   db/schema.ts       esquema Drizzle
   server/queries.ts  lectures i càlculs

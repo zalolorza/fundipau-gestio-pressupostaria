@@ -62,7 +62,7 @@ function DatePicker({
   const selected = value ? parseISODate(value) : undefined
 
   return (
-    <div className={cn("relative", className)}>
+    <div className="relative">
       {name ? (
         <input
           type="text"
@@ -87,7 +87,8 @@ function DatePicker({
             aria-required={required || undefined}
             className={cn(
               "w-full justify-start border-input font-normal",
-              !value && "text-muted-foreground"
+              !value && "text-muted-foreground",
+              className
             )}
           >
             <CalendarIcon data-icon="inline-start" />

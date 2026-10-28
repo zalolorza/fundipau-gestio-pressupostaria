@@ -2,6 +2,7 @@ import { PlusIcon } from "lucide-react"
 import type { Metadata } from "next"
 import Link from "next/link"
 
+import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header"
 import { SupplierDialog } from "@/components/suppliers/supplier-dialog"
 import { Button } from "@/components/ui/button"
@@ -59,7 +60,7 @@ export default async function SuppliersPage() {
                 </TableRow>
               )}
               {suppliers.map((s) => (
-                <TableRow key={s.id}>
+                <InteractiveTableRow key={s.id} href={`/proveidors/${s.id}`}>
                   <TableCell className="pl-4 font-medium">
                     <Link href={`/proveidors/${s.id}`} className="hover:text-primary hover:underline">
                       {s.name}
@@ -75,7 +76,7 @@ export default async function SuppliersPage() {
                   <TableCell className="pr-4 text-right text-muted-foreground">
                     {s.lastInvoice ? formatDate(s.lastInvoice) : "—"}
                   </TableCell>
-                </TableRow>
+                </InteractiveTableRow>
               ))}
             </TableBody>
           </Table>

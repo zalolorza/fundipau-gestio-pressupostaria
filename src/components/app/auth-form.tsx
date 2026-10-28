@@ -55,14 +55,14 @@ export function AuthForm({
   }
 
   return (
-    <div className={cn("flex flex-col gap-4", className)} {...props}>
+    <div className={cn("flex flex-col gap-12", className)} {...props}>
       <div className="flex justify-center">
-        <Logo className="w-40 h-auto" color="blanc" variant="icon" />
+        <Logo className="w-34 h-auto" color="blanc" variant="icon" />
       </div>
       <Card className="overflow-hidden p-0">
         <CardContent className="grid p-0 md:grid-cols-2">
           <form
-            className="p-6 md:p-8 flex flex-col justify-center min-h-[400px] bg-muted"
+            className="p-6 md:p-8 flex flex-col justify-center min-h-100"
             onSubmit={onSubmit}
           >
             <FieldGroup>
@@ -73,7 +73,7 @@ export function AuthForm({
                   </h1>
                   <p className="text-balance text-muted-foreground">
                     {mode === "login"
-                      ? "Accedeix a la gestió pressupostària de projectes de Fundipau"
+                      ? ""
                       : "Introdueix les teves dades per crear un compte"}
                   </p>
                 </div>
