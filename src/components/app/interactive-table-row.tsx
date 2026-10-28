@@ -44,9 +44,17 @@ export function InteractiveTableRow({
       className={cn(interactive && "cursor-pointer", className)}
       tabIndex={interactive ? 0 : undefined}
       role={href ? "link" : interactive ? "button" : undefined}
+      {...props}
       onClick={(e) => {
         onClick?.(e)
         if (e.defaultPrevented || !interactive || isInteractiveTarget(e.target)) return
+        // Events de portals (diàlegs) bombollen per React però no són fills DOM de la fila.
+        if (
+          !(e.target instanceof Node) ||
+          !e.currentTarget.contains(e.target)
+        ) {
+          return
+        }
         activate()
       }}
       onKeyDown={(e) => {
@@ -56,7 +64,6 @@ export function InteractiveTableRow({
         e.preventDefault()
         activate()
       }}
-      {...props}
     >
       {children}
     </TableRow>

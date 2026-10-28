@@ -861,6 +861,97 @@ export async function deletePayrollEntry(payrollId: string, entryId: string): Pr
   return { ok: true }
 }
 
+const payrollEntryIdsSchema = z.array(z.string().uuid()).min(1, "Selecciona almenys un mes")
+
+const bulkPayrollEntryPatchSchema = z
+  .object({
+    amount: money.min(0).optional(),
+    allocations: allocationSchema.optional(),
+  })
+  .refine((p) => p.amount !== undefined || p.allocations !== undefined, {
+    message: "Indica què vols canviar",
+  })
+export type BulkPayrollEntryPatch = z.input<typeof bulkPayrollEntryPatchSchema>
+
+/** Actualitza quantitat i/o assignació de diversos registres mensuals d'una nòmina */
+export async function bulkUpdatePayrollEntries(
+  payrollId: string,
+  entryIds: string[],
+  patch: BulkPayrollEntryPatch
+): Promise<ActionResult<{ count: number }>> {
+  await requireSession()
+  try {
+    const ids = payrollEntryIdsSchema.parse(entryIds)
+    const data = bulkPayrollEntryPatchSchema.parse(patch)
+    if (data.allocations) checkAllocations(data.allocations, "max")
+
+    const owned = await db
+      .select({ id: payrollEntries.id })
+      .from(payrollEntries)
+      .where(and(eq(payrollEntries.payrollId, payrollId), inArray(payrollEntries.id, ids)))
+    if (owned.length !== ids.length) throw new Error("Algun registre no pertany a aquesta nòmina")
+    const ownedIds = owned.map((e) => e.id)
+
+    if (data.amount !== undefined) {
+      await db
+        .update(payrollEntries)
+        .set({ amount: data.amount })
+        .where(inArray(payrollEntries.id, ownedIds))
+    }
+
+    if (data.allocations) {
+      const clear = db
+        .delete(payrollEntryProjects)
+        .where(inArray(payrollEntryProjects.entryId, ownedIds))
+      if (data.allocations.length) {
+        await db.batch([
+          clear,
+          db.insert(payrollEntryProjects).values(
+            ownedIds.flatMap((entryId) =>
+              data.allocations!.map((a) => ({
+                entryId,
+                projectId: a.id,
+                percentage: a.percentage,
+              }))
+            )
+          ),
+        ])
+      } else {
+        await clear
+      }
+    }
+
+    revalidatePath(`/nomines/${payrollId}`)
+    revalidatePath("/nomines")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/clients", "layout")
+    return { ok: true, data: { count: ownedIds.length } }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+export async function bulkDeletePayrollEntries(
+  payrollId: string,
+  entryIds: string[]
+): Promise<ActionResult<{ count: number }>> {
+  await requireSession()
+  try {
+    const ids = payrollEntryIdsSchema.parse(entryIds)
+    const deleted = await db
+      .delete(payrollEntries)
+      .where(and(eq(payrollEntries.payrollId, payrollId), inArray(payrollEntries.id, ids)))
+      .returning({ id: payrollEntries.id })
+    revalidatePath(`/nomines/${payrollId}`)
+    revalidatePath("/nomines")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/clients", "layout")
+    return { ok: true, data: { count: deleted.length } }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
 export async function deletePayroll(id: string) {
   await requireSession()
   await db.delete(payrolls).where(eq(payrolls.id, id))

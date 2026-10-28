@@ -51,6 +51,8 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onClick,
+  onPointerDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -65,6 +67,14 @@ function DialogContent({
           className
         )}
         {...props}
+        onClick={(e) => {
+          e.stopPropagation()
+          onClick?.(e)
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          onPointerDown?.(e)
+        }}
       >
         {children}
         {showCloseButton && (

@@ -9,7 +9,6 @@ import Link from "next/link";
 import { BudgetProgress } from "@/components/app/budget-progress";
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header";
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog";
-import { PayrollCreateDialog } from "@/components/payroll/payroll-create-dialog";
 import { ProjectDialog } from "@/components/projects/project-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +65,7 @@ export default async function HomePage() {
             action={
               <ProjectDialog clientOptions={clientOptions}>
                 <Button variant="default" size="sm">
-                  <PlusIcon /> Afegir nou
+                  <PlusIcon /> Nou projecte
                 </Button>
               </ProjectDialog>
             }
@@ -88,7 +87,7 @@ export default async function HomePage() {
                 suppliers={suppliers}
               >
                 <Button variant="default" size="sm">
-                  <PlusIcon /> Afegir nova
+                  <PlusIcon /> Nova factura
                 </Button>
               </InvoiceDialog>
             }
