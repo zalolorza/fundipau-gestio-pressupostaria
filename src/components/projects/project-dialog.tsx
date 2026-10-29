@@ -59,16 +59,18 @@ export function ProjectDialog({
   const direct = Number(directBudget)
   const indirect =
     split && Number.isFinite(max) && Number.isFinite(direct) ? round2(Math.max(0, max - direct)) : null
+  const allocErr = allocationError(alloc, "exact")
+  const budgetOk =
+    Number.isFinite(max) &&
+    max >= 0 &&
+    (!split || (Number.isFinite(direct) && direct >= 0 && direct <= max))
+  const canSave = !allocErr && budgetOk
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const err = allocationError(alloc, "exact")
-    if (err) return void toast.error(`Clients: ${err}`)
+    if (!canSave) return
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
     if (split) {
-      if (!Number.isFinite(max) || !Number.isFinite(direct) || direct < 0 || direct > max) {
-        return void toast.error("El pressupost directe ha d'estar entre 0 i el pressupost màxim")
-      }
       f.directBudget = String(direct)
       f.indirectBudget = String(round2(max - direct))
     } else {
@@ -121,17 +123,23 @@ export function ProjectDialog({
                 <DatePicker id="closedAt" name="closedAt" defaultValue={project?.closedAt ?? ""} />
               </Field>
               <Field>
-                <FieldLabel htmlFor="maxBudget">Pressupost màxim (€) *</FieldLabel>
-                <Input
-                  id="maxBudget"
-                  name="maxBudget"
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  required
-                  value={maxBudget}
-                  onChange={(e) => setMaxBudget(e.target.value)}
-                />
+                <FieldLabel htmlFor="maxBudget">Pressupost màxim *</FieldLabel>
+                <div className="relative">
+                  <Input
+                    id="maxBudget"
+                    name="maxBudget"
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    required
+                    value={maxBudget}
+                    onChange={(e) => setMaxBudget(e.target.value)}
+                    className="pr-6"
+                  />
+                  <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+                    €
+                  </span>
+                </div>
               </Field>
             </div>
             <Field orientation="horizontal">
@@ -153,37 +161,50 @@ export function ProjectDialog({
             {split && (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field>
-                  <FieldLabel htmlFor="directBudget">Pressupost directe (€)</FieldLabel>
-                  <Input
-                    id="directBudget"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    max={Number.isFinite(max) ? max : undefined}
-                    required={split}
-                    value={directBudget}
-                    onChange={(e) => setDirectBudget(e.target.value)}
-                  />
+                  <FieldLabel htmlFor="directBudget">Pressupost directe</FieldLabel>
+                  <div className="relative">
+                    <Input
+                      id="directBudget"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      max={Number.isFinite(max) ? max : undefined}
+                      required={split}
+                      value={directBudget}
+                      onChange={(e) => setDirectBudget(e.target.value)}
+                      className="pr-6"
+                    />
+                    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+                      €
+                    </span>
+                  </div>
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="indirectBudget">Pressupost indirecte (€)</FieldLabel>
-                  <Input
-                    id="indirectBudget"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    readOnly
-                    tabIndex={-1}
-                    value={indirect ?? ""}
-                    className="bg-muted"
-                  />
+                  <FieldLabel htmlFor="indirectBudget">Pressupost indirecte</FieldLabel>
+                  <div className="relative">
+                    <Input
+                      id="indirectBudget"
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      readOnly
+                      tabIndex={-1}
+                      value={indirect ?? ""}
+                      className="bg-muted pr-6"
+                    />
+                    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+                      €
+                    </span>
+                  </div>
                   <FieldDescription>Es calcula com a màxim − directe.</FieldDescription>
                 </Field>
               </div>
             )}
             <FieldSet>
               <FieldLegend>Clients</FieldLegend>
-              <FieldDescription>Repartiment del finançament. Ha de sumar 100 %.</FieldDescription>
+              <FieldDescription>
+                Repartiment del finançament (percentatge o import). Ha de sumar 100 %.
+              </FieldDescription>
               <AllocationEditor
                 value={alloc}
                 onChange={setAlloc}
@@ -191,6 +212,7 @@ export function ProjectDialog({
                 mode="exact"
                 itemLabel="client"
                 emptyText="Cap client assignat"
+                amountBase={Number.isFinite(max) && max > 0 ? max : undefined}
               />
             </FieldSet>
           </FieldGroup>
@@ -199,7 +221,7 @@ export function ProjectDialog({
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel·la
           </Button>
-          <Button type="submit" form="project-form" disabled={pending}>
+          <Button type="submit" form="project-form" disabled={pending || !canSave}>
             {pending ? "Desant…" : "Desa"}
           </Button>
         </DialogFooter>
