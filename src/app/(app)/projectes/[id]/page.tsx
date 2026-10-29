@@ -22,6 +22,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getDefaultVatDeductibleRate } from "@/lib/app-settings";
 import { COST_TYPE_LABELS } from "@/lib/cost-type";
@@ -34,6 +43,9 @@ import {
   getProject,
   getProjectOptions,
   getSupplierOptions,
+  listCategories,
+  type CategoryTotal,
+  type ProjectCosts,
 } from "@/server/queries";
 
 export async function generateMetadata({
@@ -57,6 +69,7 @@ export default async function ProjectPage({
     payrolls,
     projects,
     suppliers,
+    categories,
     defaultVatDeductibleRate,
   ] = await Promise.all([
     getProject(id),
@@ -65,11 +78,11 @@ export default async function ProjectPage({
     getPayrollOptions(),
     getProjectOptions(),
     getSupplierOptions(),
+    listCategories(),
     getDefaultVatDeductibleRate(),
   ]);
   if (!project) notFound();
 
-  const remaining = round2(project.maxBudget - project.costs.total);
   const budgetSplit =
     project.directBudget != null && project.indirectBudget != null
       ? {
@@ -84,11 +97,13 @@ export default async function ProjectPage({
   const current = Object.fromEntries(
     project.invoices.map((i) => [i.id, i.percentage]),
   );
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const {
     clients: _c,
     invoices: _i,
     payroll: _p,
     costs: _co,
+    categoryTotals: _ct,
     progress: _pr,
     progressBreakdown: _pb,
     ...projectRow
@@ -131,7 +146,7 @@ export default async function ProjectPage({
         </PageTitle>
 
         <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+          <Card className="lg:col-span-2 outline-none! shadow-none! border-none!">
             <CardHeader>
               <CardTitle>Progrés del pressupost</CardTitle>
               <CardDescription>
@@ -141,27 +156,33 @@ export default async function ProjectPage({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex flex-wrap items-end justify-between gap-2">
-                <div>
-                  <p className="text-3xl font-semibold tabular-nums">
-                    {formatEuro(project.costs.total)}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    de {formatEuro(project.maxBudget)}
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-3xl w-full font-semibold tabular-nums flex items-center gap-2 justify-between">
+                      <span>{formatEuro(project.costs.total)}</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      de {formatEuro(project.maxBudget)}
+                    </p>
+                  </div>
+                  <p
+                    className={cn(
+                      "text-2xl font-semibold tabular-nums",
+                      project.progress > 100
+                        ? "text-destructive"
+                        : "text-primary",
+                    )}
+                  >
+                    {formatPct(round2(project.progress))}
                   </p>
                 </div>
-                <p
-                  className={cn(
-                    "text-2xl font-semibold tabular-nums",
-                    project.progress > 100
-                      ? "text-destructive"
-                      : "text-primary",
-                  )}
-                >
-                  {formatPct(round2(project.progress))}
-                </p>
+                <BudgetProgress
+                  value={project.progress}
+                  className="h-3"
+                  maxBudget={project.maxBudget}
+                />
               </div>
-              <BudgetProgress value={project.progress} className="h-3" />
               {budgetSplit && project.progressBreakdown && (
                 <div className="grid gap-5 sm:grid-cols-2">
                   <BudgetPart
@@ -178,44 +199,8 @@ export default async function ProjectPage({
                   />
                 </div>
               )}
-              <dl
-                className={cn(
-                  "grid gap-4 text-sm",
-                  budgetSplit
-                    ? "grid-cols-2 sm:grid-cols-4"
-                    : "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6",
-                )}
-              >
-                <Stat
-                  label="Factures"
-                  value={formatEuro(project.costs.invoices)}
-                />
-                <Stat
-                  label="Nòmines"
-                  value={formatEuro(project.costs.payroll)}
-                />
-                {!budgetSplit && (
-                  <>
-                    <Stat
-                      label="Directes"
-                      value={formatEuro(project.costs.direct)}
-                    />
-                    <Stat
-                      label="Indirectes"
-                      value={formatEuro(project.costs.indirect)}
-                    />
-                  </>
-                )}
-                <Stat
-                  label={remaining >= 0 ? "Disponible" : "Excés"}
-                  value={formatEuro(Math.abs(remaining))}
-                  className={remaining < 0 ? "text-destructive" : undefined}
-                />
-                <Stat
-                  label="Pressupost"
-                  value={formatEuro(project.maxBudget)}
-                />
-              </dl>
+              <CostsByCostType costs={project.costs} />
+              <CostsByUserCategory totals={project.categoryTotals} />
             </CardContent>
           </Card>
 
@@ -265,11 +250,13 @@ export default async function ProjectPage({
                   current={current}
                   projectOptions={projectOptions}
                   suppliers={suppliers}
+                  categories={categoryOptions}
                   defaultVatDeductibleRate={defaultVatDeductibleRate}
                 />
                 <AssignPayrollDialog
                   projectId={project.id}
                   payrolls={payrolls}
+                  categories={categoryOptions}
                   defaultFrom={project.openedAt}
                   defaultTo={project.closedAt}
                 >
@@ -295,6 +282,7 @@ export default async function ProjectPage({
                 invoices={project.invoices}
                 projectOptions={projectOptions}
                 suppliers={suppliers}
+                categories={categoryOptions}
               />
             </TabsContent>
             <TabsContent value="nomines">
@@ -302,6 +290,7 @@ export default async function ProjectPage({
                 projectId={project.id}
                 groups={project.payroll}
                 payrolls={payrolls}
+                categories={categoryOptions}
                 defaultFrom={project.openedAt}
                 defaultTo={project.closedAt}
               />
@@ -313,19 +302,123 @@ export default async function ProjectPage({
   );
 }
 
-function Stat({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: string;
-  className?: string;
-}) {
+function CostsByUserCategory({ totals }: { totals: CategoryTotal[] }) {
+  if (totals.length === 1 && totals[0].id == null) return null;
+  if (totals.length === 0) {
+    return (
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Costos per categoria</p>
+        <p className="text-sm text-muted-foreground">
+          Encara no hi ha costos imputats amb categories.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn("font-medium tabular-nums", className)}>{value}</dd>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-medium">Costos per categoria</p>
+        <p className="text-xs text-muted-foreground">
+          La suma pot superar el total del projecte.
+        </p>
+      </div>
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Categoria</TableHead>
+              <TableHead className="text-right">Import</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {totals.map((row) => (
+              <TableRow key={row.id ?? "none"}>
+                <TableCell
+                  className={cn(
+                    "font-medium",
+                    row.id == null && "text-muted-foreground",
+                  )}
+                >
+                  {row.name}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatEuro(row.amount)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function CostsByCostType({ costs }: { costs: ProjectCosts }) {
+  const rows = [
+    {
+      label: "Factures",
+      direct: costs.invoicesDirect,
+      indirect: costs.invoicesIndirect,
+      total: costs.invoices,
+    },
+    {
+      label: "Nòmines",
+      direct: costs.payrollDirect,
+      indirect: costs.payrollIndirect,
+      total: costs.payroll,
+    },
+  ] as const;
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">Costos per tipus</p>
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[30%]">Origen</TableHead>
+              <TableHead className="text-right">
+                {COST_TYPE_LABELS.direct}
+              </TableHead>
+              <TableHead className="text-right">
+                {COST_TYPE_LABELS.indirect}
+              </TableHead>
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.label}>
+                <TableCell className="font-medium">{row.label}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatEuro(row.direct)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatEuro(row.indirect)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums font-medium">
+                  {formatEuro(row.total)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+          <TableFooter>
+            <TableRow>
+              <TableCell>Total</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatEuro(costs.direct)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatEuro(costs.indirect)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatEuro(costs.total)}
+              </TableCell>
+            </TableRow>
+          </TableFooter>
+        </Table>
+      </div>
     </div>
   );
 }

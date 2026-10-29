@@ -1,5 +1,6 @@
 import { Progress } from "@/components/ui/progress";
 import { COST_TYPE_LABELS } from "@/lib/cost-type";
+import { formatEuro } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function budgetTone(progress: number) {
@@ -23,6 +24,7 @@ export type BudgetProgressBreakdown = {
 
 export function BudgetProgress({
   value,
+  maxBudget,
   className,
   breakdown,
 }: {
@@ -30,13 +32,21 @@ export function BudgetProgress({
   className?: string;
   /** Progrés % directe / indirecte quan el projecte té pressupost desglossat. */
   breakdown?: BudgetProgressBreakdown;
+  maxBudget?: number;
 }) {
   return (
     <div className={cn("space-y-5", breakdown && "min-w-0")}>
-      <Progress
-        value={Math.min(100, value)}
-        className={cn("h-2", toneClass(value), className)}
-      />
+      <div className="grid gap-2">
+        <Progress
+          value={Math.min(100, value)}
+          className={cn("h-2", toneClass(value), className)}
+        />
+        {maxBudget && (
+          <span className="text-muted-foreground text-xs text-right">
+            {formatEuro(((100 - value) * maxBudget) / 100)} disponible
+          </span>
+        )}
+      </div>
       {breakdown && (
         <div className="grid gap-5 sm:grid-cols-2">
           <BreakdownBar
@@ -59,10 +69,12 @@ function BreakdownBar({
   label,
   value,
   className,
+  footerLabel,
 }: {
   label: string;
   value: number;
   className?: string;
+  footerLabel?: string | React.ReactNode;
 }) {
   return (
     <div className="min-w-0 space-y-0.5">
@@ -81,6 +93,7 @@ function BreakdownBar({
         value={Math.min(100, value)}
         className={cn("h-2", toneClass(value), className)}
       />
+      {footerLabel}
     </div>
   );
 }

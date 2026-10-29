@@ -1,11 +1,17 @@
-import { AppSidebar } from "@/components/app-sidebar"
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { isAdminRole, requireSession } from "@/lib/auth"
+import { AppSidebar } from "@/components/app-sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { isAdminRole, requireSession } from "@/lib/auth";
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const session = await requireSession()
+export default async function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const session = await requireSession();
   return (
-    <SidebarProvider style={{ "--sidebar-width": "17rem" } as React.CSSProperties}>
+    <SidebarProvider
+      style={{ "--sidebar-width": "17rem" } as React.CSSProperties}
+    >
       <AppSidebar
         user={{
           name: session.user.name,
@@ -15,5 +21,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       />
       <SidebarInset>{children}</SidebarInset>
     </SidebarProvider>
-  )
+  );
 }

@@ -12,6 +12,8 @@ import { deleteInvoice } from "@/server/actions"
 export function InvoiceRowActions({
   invoice,
   allocations,
+  categoryIds,
+  categories,
   projectOptions,
   suppliers,
   open,
@@ -19,6 +21,8 @@ export function InvoiceRowActions({
 }: {
   invoice: SupplierInvoice
   allocations: { id: string; percentage: number }[]
+  categoryIds?: string[]
+  categories?: React.ComponentProps<typeof InvoiceDialog>["categories"]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: React.ComponentProps<typeof InvoiceDialog>["suppliers"]
   open?: boolean
@@ -29,6 +33,8 @@ export function InvoiceRowActions({
       <InvoiceDialog
         invoice={invoice}
         allocations={allocations}
+        categoryIds={categoryIds}
+        categories={categories}
         projectOptions={projectOptions}
         suppliers={suppliers}
         open={open}

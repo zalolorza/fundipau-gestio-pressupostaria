@@ -8,6 +8,7 @@ import {
   allocationError,
   type AllocationRow,
 } from "@/components/app/allocation-editor"
+import type { CategoryRef } from "@/components/categories/category-picker"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -35,6 +36,7 @@ export function BulkEditEntriesDialog({
   payrollId,
   entryIds,
   projectOptions,
+  categories = [],
   onDone,
 }: {
   open: boolean
@@ -42,6 +44,7 @@ export function BulkEditEntriesDialog({
   payrollId: string
   entryIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  categories?: CategoryRef[]
   onDone?: () => void
 }) {
   return (
@@ -63,6 +66,7 @@ export function BulkEditEntriesDialog({
             payrollId={payrollId}
             entryIds={entryIds}
             projectOptions={projectOptions}
+            categories={categories}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
               onOpenChange(false)
@@ -79,12 +83,14 @@ function BulkEditForm({
   payrollId,
   entryIds,
   projectOptions,
+  categories: initialCategories,
   onCancel,
   onDone,
 }: {
   payrollId: string
   entryIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  categories: CategoryRef[]
   onCancel: () => void
   onDone: () => void
 }) {
@@ -93,6 +99,7 @@ function BulkEditForm({
   const [changeAlloc, setChangeAlloc] = useState(false)
   const [amount, setAmount] = useState(0)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
+  const [catalog, setCatalog] = useState(initialCategories)
 
   const n = entryIds.length
   const hasChange = changeAmount || changeAlloc
@@ -184,6 +191,8 @@ function BulkEditForm({
                   itemLabel="projecte"
                   emptyText="Sense assignar a cap projecte"
                   withCostType
+                  categories={catalog}
+                  onCatalogChange={setCatalog}
                 />
               </>
             )}

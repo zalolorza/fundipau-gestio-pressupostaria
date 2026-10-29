@@ -3,7 +3,9 @@ import {
   boolean,
   check,
   date,
+  foreignKey,
   index,
+  integer,
   numeric,
   pgTable,
   primaryKey,
@@ -214,6 +216,18 @@ export const projectClients = pgTable(
   ]
 )
 
+/** Categories de cost globals (etiquetes; múltiples per factura / assignació de nòmina). */
+export const costCategories = pgTable(
+  "cost_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("cost_categories_name_uq").on(t.name)]
+)
+
 /** Proveïdors */
 export const suppliers = pgTable(
   "suppliers",
@@ -295,6 +309,23 @@ export const invoiceProjects = pgTable(
   ]
 )
 
+/** Categories associades a una factura */
+export const invoiceCategories = pgTable(
+  "invoice_categories",
+  {
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => supplierInvoices.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => costCategories.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.invoiceId, t.categoryId] }),
+    index("invoice_categories_category_idx").on(t.categoryId),
+  ]
+)
+
 /** Nòmines (una per persona) */
 export const payrolls = pgTable("payrolls", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -347,6 +378,27 @@ export const payrollEntryProjects = pgTable(
   ]
 )
 
+/** Categories associades a una assignació de nòmina a un projecte */
+export const payrollEntryProjectCategories = pgTable(
+  "payroll_entry_project_categories",
+  {
+    entryId: uuid("entry_id").notNull(),
+    projectId: uuid("project_id").notNull(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => costCategories.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.entryId, t.projectId, t.categoryId] }),
+    foreignKey({
+      columns: [t.entryId, t.projectId],
+      foreignColumns: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
+      name: "pep_categories_allocation_fk",
+    }).onDelete("cascade"),
+    index("payroll_entry_project_categories_category_idx").on(t.categoryId),
+  ]
+)
+
 /* -------------------------------------------------------------------------- */
 /*                                 Relacions                                  */
 /* -------------------------------------------------------------------------- */
@@ -370,9 +422,15 @@ export const suppliersRelations = relations(suppliers, ({ many }) => ({
   invoices: many(supplierInvoices),
 }))
 
+export const costCategoriesRelations = relations(costCategories, ({ many }) => ({
+  invoices: many(invoiceCategories),
+  payrollAllocations: many(payrollEntryProjectCategories),
+}))
+
 export const supplierInvoicesRelations = relations(supplierInvoices, ({ one, many }) => ({
   supplier: one(suppliers, { fields: [supplierInvoices.supplierId], references: [suppliers.id] }),
   projects: many(invoiceProjects),
+  categories: many(invoiceCategories),
 }))
 
 export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => ({
@@ -381,6 +439,17 @@ export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => 
     references: [supplierInvoices.id],
   }),
   project: one(projects, { fields: [invoiceProjects.projectId], references: [projects.id] }),
+}))
+
+export const invoiceCategoriesRelations = relations(invoiceCategories, ({ one }) => ({
+  invoice: one(supplierInvoices, {
+    fields: [invoiceCategories.invoiceId],
+    references: [supplierInvoices.id],
+  }),
+  category: one(costCategories, {
+    fields: [invoiceCategories.categoryId],
+    references: [costCategories.id],
+  }),
 }))
 
 export const payrollsRelations = relations(payrolls, ({ many }) => ({
@@ -392,7 +461,7 @@ export const payrollEntriesRelations = relations(payrollEntries, ({ one, many })
   projects: many(payrollEntryProjects),
 }))
 
-export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ one }) => ({
+export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ one, many }) => ({
   entry: one(payrollEntries, {
     fields: [payrollEntryProjects.entryId],
     references: [payrollEntries.id],
@@ -401,7 +470,22 @@ export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ 
     fields: [payrollEntryProjects.projectId],
     references: [projects.id],
   }),
+  categories: many(payrollEntryProjectCategories),
 }))
+
+export const payrollEntryProjectCategoriesRelations = relations(
+  payrollEntryProjectCategories,
+  ({ one }) => ({
+    allocation: one(payrollEntryProjects, {
+      fields: [payrollEntryProjectCategories.entryId, payrollEntryProjectCategories.projectId],
+      references: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
+    }),
+    category: one(costCategories, {
+      fields: [payrollEntryProjectCategories.categoryId],
+      references: [costCategories.id],
+    }),
+  })
+)
 
 export type Client = typeof clients.$inferSelect
 export type Project = typeof projects.$inferSelect
@@ -409,6 +493,7 @@ export type Supplier = typeof suppliers.$inferSelect
 export type SupplierInvoice = typeof supplierInvoices.$inferSelect
 export type Payroll = typeof payrolls.$inferSelect
 export type PayrollEntry = typeof payrollEntries.$inferSelect
+export type CostCategory = typeof costCategories.$inferSelect
 export type Invitation = typeof invitations.$inferSelect
 export type User = typeof user.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect

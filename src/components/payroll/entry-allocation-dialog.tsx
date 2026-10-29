@@ -5,6 +5,7 @@ import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
 import { ScopeDialog } from "@/components/app/scope-dialog"
+import type { CategoryRef } from "@/components/categories/category-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -23,6 +24,7 @@ export function EntryAllocationDialog({
   month,
   allocations,
   projectOptions,
+  categories: initialCategories = [],
   open: controlledOpen,
   onOpenChange,
   children,
@@ -31,6 +33,7 @@ export function EntryAllocationDialog({
   month: string
   allocations: AllocationRow[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  categories?: CategoryRef[]
   open?: boolean
   onOpenChange?: (open: boolean) => void
   children?: React.ReactNode
@@ -40,6 +43,7 @@ export function EntryAllocationDialog({
   const setOpen = onOpenChange ?? setUncontrolledOpen
   const [scopeOpen, setScopeOpen] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>(allocations)
+  const [catalog, setCatalog] = useState(initialCategories)
   const [pending, start] = useTransition()
 
   function apply(scope: "current" | "future" | "all") {
@@ -57,7 +61,10 @@ export function EntryAllocationDialog({
         open={open}
         onOpenChange={(o) => {
           setOpen(o)
-          if (o) setAlloc(allocations)
+          if (o) {
+            setAlloc(allocations)
+            setCatalog(initialCategories)
+          }
         }}
       >
         {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
@@ -74,6 +81,8 @@ export function EntryAllocationDialog({
             itemLabel="projecte"
             emptyText="Sense assignar a cap projecte"
             withCostType
+            categories={catalog}
+            onCatalogChange={setCatalog}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

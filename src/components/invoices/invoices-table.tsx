@@ -82,11 +82,13 @@ export function InvoicesTable({
   invoices,
   projectOptions,
   suppliers,
+  categories = [],
   defaultVatDeductibleRate,
 }: {
   invoices: InvoiceListItem[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  categories?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
 }) {
   const { pending } = useInvoiceListNav()
@@ -195,7 +197,17 @@ export function InvoicesTable({
                 </TableRow>
               )}
               {invoices.map((inv) => {
-                const { projects: _p, supplier: _s, allocations, assigned, assignedTotal, cost: _c, ...row } = inv
+                const {
+                  projects: _p,
+                  supplier: _s,
+                  allocations,
+                  assigned,
+                  assignedTotal,
+                  cost: _c,
+                  categories: _cats,
+                  categoryIds: _cids,
+                  ...row
+                } = inv
                 const isSelected = selected.has(inv.id)
                 return (
                   <InteractiveTableRow
@@ -230,9 +242,16 @@ export function InvoicesTable({
                       </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={inv.costType === "indirect" ? "outline" : "secondary"}>
-                        {COST_TYPE_LABELS[inv.costType]}
-                      </Badge>
+                      <div className="flex max-w-40 flex-wrap gap-1">
+                        <Badge variant={inv.costType === "indirect" ? "outline" : "secondary"}>
+                          {COST_TYPE_LABELS[inv.costType]}
+                        </Badge>
+                        {inv.categories.map((c) => (
+                          <Badge key={c.id} variant="outline" className="font-normal">
+                            {c.name}
+                          </Badge>
+                        ))}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="font-medium">
@@ -285,6 +304,8 @@ export function InvoicesTable({
                       <InvoiceRowActions
                         invoice={row}
                         allocations={allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
+                        categoryIds={inv.categoryIds}
+                        categories={categories}
                         projectOptions={projectOptions}
                         suppliers={suppliers}
                         open={rowEditId === inv.id}
@@ -320,6 +341,7 @@ export function InvoicesTable({
         invoiceIds={selectedIds}
         projectOptions={projectOptions}
         suppliers={suppliers}
+        categories={categories}
         defaultVatDeductibleRate={defaultVatDeductibleRate}
         onDone={clearSelection}
       />

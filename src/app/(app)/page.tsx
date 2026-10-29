@@ -27,15 +27,24 @@ import {
   getDashboard,
   getProjectOptions,
   getSupplierOptions,
+  listCategories,
 } from "@/server/queries";
 
 export default async function HomePage() {
   const month = currentMonth();
-  const [d, clientOptions, projects, suppliers, defaultVatDeductibleRate] = await Promise.all([
+  const [
+    d,
+    clientOptions,
+    projects,
+    suppliers,
+    categories,
+    defaultVatDeductibleRate,
+  ] = await Promise.all([
     getDashboard(month),
     getClientOptions(),
     getProjectOptions(),
     getSupplierOptions(),
+    listCategories(),
     getDefaultVatDeductibleRate(),
   ]);
   const today = new Date().toISOString().slice(0, 10);
@@ -47,6 +56,7 @@ export default async function HomePage() {
     name: p.name,
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }));
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const monthInvoicesHref = `/factures?des=${month}&fins=${endOfMonth(month)}`;
 
   return (
@@ -87,6 +97,7 @@ export default async function HomePage() {
               <InvoiceDialog
                 projectOptions={projectOptions}
                 suppliers={suppliers}
+                categories={categoryOptions}
                 defaultVatDeductibleRate={defaultVatDeductibleRate}
               >
                 <Button variant="default" size="sm">
@@ -172,7 +183,10 @@ export default async function HomePage() {
                     </span>
                   </span>
                 </div>
-                <BudgetProgress value={p.progress} breakdown={p.progressBreakdown} />
+                <BudgetProgress
+                  value={p.progress}
+                  breakdown={p.progressBreakdown}
+                />
               </div>
             ))}
           </CardContent>

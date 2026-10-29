@@ -34,6 +34,8 @@ type Entry = {
     name: string;
     percentage: number;
     costType: "direct" | "indirect";
+    categoryIds?: string[];
+    categories?: { id: string; name: string }[];
   }[];
 };
 
@@ -41,12 +43,14 @@ export function EntriesTable({
   payrollId,
   entries,
   projectOptions,
+  categories = [],
   current,
   className,
 }: {
   payrollId: string;
   entries: Entry[];
   projectOptions: { id: string; name: string; hint?: string }[];
+  categories?: { id: string; name: string }[];
   current: string;
   className?: string;
 }) {
@@ -200,8 +204,10 @@ export function EntriesTable({
                         id: a.projectId,
                         percentage: a.percentage,
                         costType: a.costType,
+                        categoryIds: a.categoryIds ?? [],
                       }))}
                       projectOptions={projectOptions}
+                      categories={categories}
                       open={allocOpenId === e.id}
                       onOpenChange={(o) => setAllocOpenId(o ? e.id : null)}
                     >
@@ -213,6 +219,9 @@ export function EntriesTable({
                           <Badge key={a.projectId} variant="secondary">
                             {a.name} · {a.percentage} %
                             {a.costType === "indirect" ? " · ind." : ""}
+                            {a.categories?.length
+                              ? ` · ${a.categories.map((c) => c.name).join(", ")}`
+                              : ""}
                           </Badge>
                         ))}
                         {e.assigned < 100 && (
@@ -266,6 +275,7 @@ export function EntriesTable({
         payrollId={payrollId}
         entryIds={selectedIds}
         projectOptions={projectOptions}
+        categories={categories}
         onDone={clearSelection}
       />
     </>

@@ -1,13 +1,12 @@
-import { ChevronRightIcon } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
-import { InteractiveTableRow } from "@/components/app/interactive-table-row";
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header";
 import { PeriodPicker } from "@/components/app/period-picker";
 import { ClientActions } from "@/components/clients/client-actions";
+import { ClientBillingProjectPanel } from "@/components/clients/client-billing-project";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -16,15 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { formatDate, formatEuro, formatMonth, formatPct } from "@/lib/format";
+import { formatEuro, formatMonth, formatPct } from "@/lib/format";
 import { addMonths, currentMonth } from "@/lib/months";
 import { getClient, getClientBilling } from "@/server/queries";
 
@@ -195,90 +186,7 @@ async function Billing({
 
       <div className="space-y-2">
         {billing.projects.map((g) => (
-          <details
-            key={g.project.id}
-            className="group rounded-lg border"
-            open={g.total > 0}
-          >
-            <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-1 p-3 [&::-webkit-details-marker]:hidden">
-              <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
-              <span className="font-medium">{g.project.name}</span>
-              <Badge variant="outline">
-                {formatPct(g.clientPct)} del projecte
-              </Badge>
-              <span className="ml-auto flex gap-4 text-sm tabular-nums">
-                <span className="text-muted-foreground">
-                  Factures {formatEuro(g.invoices)}
-                </span>
-                <span className="text-muted-foreground">
-                  Nòmines {formatEuro(g.payroll)}
-                </span>
-                <span className="font-semibold">{formatEuro(g.total)}</span>
-              </span>
-            </summary>
-            {g.lines.length === 0 ? (
-              <p className="border-t p-3 text-sm text-muted-foreground">
-                Cap cost en aquest període.
-              </p>
-            ) : (
-              <div className="border-t">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="pl-4">Data</TableHead>
-                      <TableHead>Concepte</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                      <TableHead className="text-right">% projecte</TableHead>
-                      <TableHead className="text-right">% client</TableHead>
-                      <TableHead className="pr-4 text-right">
-                        A facturar
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {g.lines.map((l, i) => (
-                      <InteractiveTableRow key={i} href={l.href ?? undefined}>
-                        <TableCell className="pl-4 whitespace-nowrap">
-                          {l.kind === "nomina"
-                            ? formatMonth(l.date, true)
-                            : formatDate(l.date)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant={
-                                l.kind === "nomina" ? "secondary" : "outline"
-                              }
-                            >
-                              {l.kind === "nomina" ? "Nòmina" : "Factura"}
-                            </Badge>
-                            <span>{l.concept}</span>
-                          </div>
-                          {l.detail && (
-                            <p className="text-xs text-muted-foreground">
-                              {l.detail}
-                            </p>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatEuro(l.cost)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatPct(l.projectPct)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatPct(l.clientPct)}
-                        </TableCell>
-                        <TableCell className="pr-4 text-right font-medium tabular-nums">
-                          {formatEuro(l.amount)}
-                        </TableCell>
-                      </InteractiveTableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </details>
+          <ClientBillingProjectPanel key={g.project.id} group={g} />
         ))}
       </div>
     </div>

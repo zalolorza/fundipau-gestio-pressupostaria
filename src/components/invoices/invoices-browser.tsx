@@ -12,12 +12,14 @@ export function InvoicesBrowser({
   suppliers,
   projects,
   projectOptions,
+  categories = [],
   defaultVatDeductibleRate,
 }: {
   invoices: InvoiceListItem[]
   suppliers: SupplierOption[]
   projects: { id: string; name: string }[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  categories?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
 }) {
   const dataKey = useMemo(
@@ -28,11 +30,16 @@ export function InvoicesBrowser({
   return (
     <InvoiceListNavProvider dataKey={dataKey}>
       <div className="space-y-4">
-        <InvoiceFilters suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))} projects={projects} />
+        <InvoiceFilters
+          suppliers={suppliers.map((s) => ({ id: s.id, name: s.name }))}
+          projects={projects}
+          categories={categories}
+        />
         <InvoicesTable
           invoices={invoices}
           projectOptions={projectOptions}
           suppliers={suppliers}
+          categories={categories}
           defaultVatDeductibleRate={defaultVatDeductibleRate}
         />
       </div>

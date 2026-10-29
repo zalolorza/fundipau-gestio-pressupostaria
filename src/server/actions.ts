@@ -9,8 +9,11 @@ import { z } from "zod"
 import { db } from "@/db"
 import {
   clients,
+  costCategories,
+  invoiceCategories,
   invoiceProjects,
   payrollEntries,
+  payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
   projectClients,
@@ -51,16 +54,56 @@ const money = z.coerce.number({ error: "Import no vàlid" }).finite()
 const pct = z.coerce.number().gt(0, "El percentatge ha de ser més gran que 0").lte(100, "Màxim 100 %")
 
 const costTypeSchema = z.enum(["direct", "indirect"])
+const categoryIdsSchema = z.array(z.string().uuid()).default([])
 const allocationSchema = z.array(z.object({ id: z.string().uuid(), percentage: pct }))
-/** Assignació a projecte amb tipus de cost (nòmines). */
+/** Assignació a projecte amb tipus de cost i categories (nòmines). */
 const payrollAllocationSchema = z.array(
   z.object({
     id: z.string().uuid(),
     percentage: pct,
     costType: costTypeSchema.default("direct"),
+    categoryIds: categoryIdsSchema,
   })
 )
 type Allocation = z.infer<typeof allocationSchema>
+
+function uniqueIds(ids: string[]) {
+  return [...new Set(ids)]
+}
+
+async function replaceInvoiceCategories(invoiceId: string, categoryIds: string[]) {
+  const ids = uniqueIds(categoryIds)
+  await db.delete(invoiceCategories).where(eq(invoiceCategories.invoiceId, invoiceId))
+  if (ids.length)
+    await db.insert(invoiceCategories).values(ids.map((categoryId) => ({ invoiceId, categoryId })))
+}
+
+async function replacePayrollAllocationCategories(
+  pairs: { entryId: string; projectId: string; categoryIds: string[] }[]
+) {
+  if (!pairs.length) return
+  // Esborra només les parelles entry×projecte que estem actualitzant
+  await Promise.all(
+    pairs.map((p) =>
+      db
+        .delete(payrollEntryProjectCategories)
+        .where(
+          and(
+            eq(payrollEntryProjectCategories.entryId, p.entryId),
+            eq(payrollEntryProjectCategories.projectId, p.projectId)
+          )
+        )
+    )
+  )
+  const rows = pairs.flatMap((p) =>
+    uniqueIds(p.categoryIds).map((categoryId) => ({
+      entryId: p.entryId,
+      projectId: p.projectId,
+      categoryId,
+    }))
+  )
+  if (rows.length) await db.insert(payrollEntryProjectCategories).values(rows)
+}
 
 function fail(e: unknown): { ok: false; error: string } {
   if (e instanceof z.ZodError) return { ok: false, error: e.issues[0]?.message ?? "Dades no vàlides" }
@@ -268,12 +311,14 @@ export async function assignPayrollToProject(
   fromMonth: string,
   toMonthValue: string,
   percentage: number,
-  costType: CostType = "direct"
+  costType: CostType = "direct",
+  categoryIds: string[] = []
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
     const kind = costTypeSchema.parse(costType)
+    const cats = categoryIdsSchema.parse(categoryIds)
     const months = monthRange(fromMonth, toMonthValue)
     if (!months.length) throw new Error("El rang de mesos no és vàlid")
 
@@ -352,6 +397,9 @@ export async function assignPayrollToProject(
         target: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
         set: { percentage: p, costType: kind },
       })
+    await replacePayrollAllocationCategories(
+      entries.map((e) => ({ entryId: e.id, projectId, categoryIds: cats }))
+    )
     revalidatePath(`/projectes/${projectId}`)
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
@@ -461,7 +509,7 @@ export async function saveInvoice(
   id: string | null,
   input: InvoiceInput,
   allocations: { id: string; percentage: number }[],
-  options?: { createSupplier?: boolean }
+  options?: { createSupplier?: boolean; categoryIds?: string[] }
 ): Promise<ActionResult<{ id: string; supplierId: string | null }>> {
   await requireSession()
   try {
@@ -469,6 +517,7 @@ export async function saveInvoice(
     const { file, ...data } = parsed
     const list = allocationSchema.parse(allocations)
     checkAllocations(list, "max")
+    const categoryIds = categoryIdsSchema.parse(options?.categoryIds ?? [])
 
     // Crear el proveïdor a partir de les dades de la factura, si es demana
     if (!data.supplierId && options?.createSupplier) {
@@ -515,6 +564,8 @@ export async function saveInvoice(
           .values(list.map((a) => ({ invoiceId: invoiceId!, projectId: a.id, percentage: a.percentage }))),
       ])
     else await clearAlloc
+
+    await replaceInvoiceCategories(invoiceId!, categoryIds)
 
     if (prev?.filePathname && prev.filePathname !== values.filePathname) {
       await deleteBlobQuietly(prev.filePathname)
@@ -569,6 +620,7 @@ const bulkInvoicePatchSchema = z
     vatDeductibleRate: z.coerce.number().min(0).max(100).optional(),
     irpfRate: z.coerce.number().min(0).max(100).optional(),
     costType: costTypeSchema.optional(),
+    categoryIds: categoryIdsSchema.optional(),
   })
   .refine(
     (p) =>
@@ -577,7 +629,8 @@ const bulkInvoicePatchSchema = z
       p.vatRate !== undefined ||
       p.vatDeductibleRate !== undefined ||
       p.irpfRate !== undefined ||
-      p.costType !== undefined,
+      p.costType !== undefined ||
+      p.categoryIds !== undefined,
     { message: "Indica què vols canviar" }
   )
 export type BulkInvoicePatch = z.input<typeof bulkInvoicePatchSchema>
@@ -647,6 +700,16 @@ export async function bulkUpdateInvoices(
         .update(supplierInvoices)
         .set({ costType: data.costType })
         .where(inArray(supplierInvoices.id, invoiceIds))
+    }
+
+    if (data.categoryIds !== undefined) {
+      await db.delete(invoiceCategories).where(inArray(invoiceCategories.invoiceId, invoiceIds))
+      const ids = uniqueIds(data.categoryIds)
+      if (ids.length) {
+        await db.insert(invoiceCategories).values(
+          invoiceIds.flatMap((invoiceId) => ids.map((categoryId) => ({ invoiceId, categoryId })))
+        )
+      }
     }
 
     if (data.allocations) {
@@ -725,7 +788,7 @@ export type PayrollInput = z.input<typeof payrollSchema>
 
 export async function createPayroll(
   input: PayrollInput,
-  allocations: { id: string; percentage: number; costType?: CostType }[]
+  allocations: { id: string; percentage: number; costType?: CostType; categoryIds?: string[] }[]
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
@@ -741,7 +804,7 @@ export async function createPayroll(
       .insert(payrollEntries)
       .values(months.map((month) => ({ payrollId: id, month, amount: data.monthlyAmount })))
       .returning({ id: payrollEntries.id })
-    if (list.length && entries.length)
+    if (list.length && entries.length) {
       await db
         .insert(payrollEntryProjects)
         .values(
@@ -754,6 +817,12 @@ export async function createPayroll(
             }))
           )
         )
+      await replacePayrollAllocationCategories(
+        entries.flatMap((e) =>
+          list.map((a) => ({ entryId: e.id, projectId: a.id, categoryIds: a.categoryIds }))
+        )
+      )
+    }
 
     revalidatePath("/nomines")
     revalidatePath("/projectes", "layout")
@@ -843,7 +912,7 @@ export async function setPayrollEntryProjects(
   payrollId: string,
   referenceMonth: string,
   scope: ChangeScope,
-  input: { id: string; percentage: number; costType?: CostType }[]
+  input: { id: string; percentage: number; costType?: CostType; categoryIds?: string[] }[]
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
@@ -861,7 +930,7 @@ export async function setPayrollEntryProjects(
     const ids = entries.map((e) => e.id)
 
     const del = db.delete(payrollEntryProjects).where(inArray(payrollEntryProjects.entryId, ids))
-    if (list.length)
+    if (list.length) {
       await db.batch([
         del,
         db.insert(payrollEntryProjects).values(
@@ -875,7 +944,12 @@ export async function setPayrollEntryProjects(
           )
         ),
       ])
-    else await del
+      await replacePayrollAllocationCategories(
+        ids.flatMap((entryId) =>
+          list.map((a) => ({ entryId, projectId: a.id, categoryIds: a.categoryIds }))
+        )
+      )
+    } else await del
 
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
@@ -896,7 +970,7 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
         entries: {
           orderBy: (e, { desc }) => [desc(e.month)],
           limit: 1,
-          with: { projects: true },
+          with: { projects: { with: { categories: true } } },
         },
       },
     })
@@ -911,7 +985,7 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
       .values(months.map((month) => ({ payrollId, month, amount: p.monthlyAmount })))
       .onConflictDoNothing()
       .returning({ id: payrollEntries.id })
-    if (last?.projects.length && created.length)
+    if (last?.projects.length && created.length) {
       await db
         .insert(payrollEntryProjects)
         .values(
@@ -924,6 +998,16 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
             }))
           )
         )
+      await replacePayrollAllocationCategories(
+        created.flatMap((e) =>
+          last.projects.map((a) => ({
+            entryId: e.id,
+            projectId: a.projectId,
+            categoryIds: a.categories.map((c) => c.categoryId),
+          }))
+        )
+      )
+    }
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
     return { ok: true, data: { count: created.length } }
@@ -997,6 +1081,15 @@ export async function bulkUpdatePayrollEntries(
             )
           ),
         ])
+        await replacePayrollAllocationCategories(
+          ownedIds.flatMap((entryId) =>
+            data.allocations!.map((a) => ({
+              entryId,
+              projectId: a.id,
+              categoryIds: a.categoryIds,
+            }))
+          )
+        )
       } else {
         await clear
       }
@@ -1039,4 +1132,31 @@ export async function deletePayroll(id: string) {
   revalidatePath("/nomines")
   revalidatePath("/projectes", "layout")
   redirect("/nomines")
+}
+
+/* ------------------------------ Categories ------------------------------- */
+
+const categoryNameSchema = z.string().trim().min(1, "El nom és obligatori").max(80, "Màxim 80 caràcters")
+
+/** Crea una categoria des del picker (desplegable). */
+export async function createCategory(name: string): Promise<ActionResult<{ id: string; name: string }>> {
+  await requireSession()
+  try {
+    const n = categoryNameSchema.parse(name)
+    const [max] = await db
+      .select({ n: sql<number>`coalesce(max(${costCategories.sortOrder}), 0)::int` })
+      .from(costCategories)
+    const [row] = await db
+      .insert(costCategories)
+      .values({ name: n, sortOrder: (max?.n ?? 0) + 1 })
+      .returning({ id: costCategories.id, name: costCategories.name })
+    revalidatePath("/factures")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/nomines", "layout")
+    return { ok: true, data: row }
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && e.code === "23505")
+      return { ok: false, error: "Ja existeix una categoria amb aquest nom" }
+    return fail(e)
+  }
 }

@@ -5,6 +5,7 @@ import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
+import type { CategoryRef } from "@/components/categories/category-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -24,13 +25,16 @@ import { createPayroll } from "@/server/actions"
 
 export function PayrollCreateDialog({
   projectOptions,
+  categories: initialCategories = [],
   children,
 }: {
   projectOptions: { id: string; name: string; hint?: string }[]
+  categories?: CategoryRef[]
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
+  const [catalog, setCatalog] = useState(initialCategories)
   const [pending, start] = useTransition()
   const router = useRouter()
 
@@ -56,7 +60,10 @@ export function PayrollCreateDialog({
       open={open}
       onOpenChange={(o) => {
         setOpen(o)
-        if (o) setAlloc([])
+        if (o) {
+          setAlloc([])
+          setCatalog(initialCategories)
+        }
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -119,6 +126,8 @@ export function PayrollCreateDialog({
                 itemLabel="projecte"
                 emptyText="Sense assignar a cap projecte"
                 withCostType
+                categories={catalog}
+                onCatalogChange={setCatalog}
               />
             </FieldSet>
           </FieldGroup>

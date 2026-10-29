@@ -27,9 +27,12 @@ type Inv = SupplierInvoice & {
   percentage: number
   imputed: number
   allocations: { id: string; percentage: number }[]
+  categories: { id: string; name: string }[]
+  categoryIds: string[]
 }
 
 type CostTypeFilter = "all" | CostType
+type CategoryFilter = "all" | "none" | string
 
 function CostTypeFilterSelect({
   value,
@@ -52,23 +55,67 @@ function CostTypeFilterSelect({
   )
 }
 
+function CategoryFilterSelect({
+  value,
+  onChange,
+  categories,
+}: {
+  value: CategoryFilter
+  onChange: (v: CategoryFilter) => void
+  categories: { id: string; name: string }[]
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-48" aria-label="Categoria">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">Totes les categories</SelectItem>
+        <SelectItem value="none">Sense categoria</SelectItem>
+        {categories.map((c) => (
+          <SelectItem key={c.id} value={c.id}>
+            {c.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function matchesCategory(
+  categoryIds: string[],
+  filter: CategoryFilter
+): boolean {
+  if (filter === "all") return true
+  if (filter === "none") return categoryIds.length === 0
+  return categoryIds.includes(filter)
+}
+
 export function AssignedInvoices({
   projectId,
   invoices,
   projectOptions,
   suppliers,
+  categories = [],
 }: {
   projectId: string
   invoices: Inv[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  categories?: { id: string; name: string }[]
 }) {
   const [pending, start] = useTransition()
   const [editId, setEditId] = useState<string | null>(null)
   const [tipus, setTipus] = useState<CostTypeFilter>("all")
+  const [categoria, setCategoria] = useState<CategoryFilter>("all")
   const filtered = useMemo(
-    () => (tipus === "all" ? invoices : invoices.filter((i) => i.costType === tipus)),
-    [invoices, tipus]
+    () =>
+      invoices.filter(
+        (i) =>
+          (tipus === "all" || i.costType === tipus) &&
+          matchesCategory(i.categoryIds, categoria)
+      ),
+    [invoices, tipus, categoria]
   )
 
   if (invoices.length === 0)
@@ -76,8 +123,9 @@ export function AssignedInvoices({
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-2 border-b px-4 py-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
         <CostTypeFilterSelect value={tipus} onChange={setTipus} />
+        <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
       </div>
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">Cap factura amb aquest filtre.</p>
@@ -97,7 +145,15 @@ export function AssignedInvoices({
           </TableHeader>
           <TableBody>
             {filtered.map((i) => {
-              const { cost: _c, percentage: _p, imputed: _im, allocations, ...invoice } = i
+              const {
+                cost: _c,
+                percentage: _p,
+                imputed: _im,
+                allocations,
+                categories: cats,
+                categoryIds,
+                ...invoice
+              } = i
               return (
                 <InteractiveTableRow key={i.id} onActivate={() => setEditId(i.id)}>
                   <TableCell className="pl-4 whitespace-nowrap">{formatDate(i.issueDate)}</TableCell>
@@ -105,6 +161,8 @@ export function AssignedInvoices({
                     <InvoiceDialog
                       invoice={invoice}
                       allocations={allocations}
+                      categoryIds={categoryIds}
+                      categories={categories}
                       projectOptions={projectOptions}
                       suppliers={suppliers}
                       open={editId === i.id}
@@ -117,9 +175,16 @@ export function AssignedInvoices({
                     </InvoiceDialog>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={i.costType === "indirect" ? "outline" : "secondary"}>
-                      {COST_TYPE_LABELS[i.costType]}
-                    </Badge>
+                    <div className="flex max-w-44 flex-wrap gap-1">
+                      <Badge variant={i.costType === "indirect" ? "outline" : "secondary"}>
+                        {COST_TYPE_LABELS[i.costType]}
+                      </Badge>
+                      {cats.map((c) => (
+                        <Badge key={c.id} variant="outline" className="font-normal">
+                          {c.name}
+                        </Badge>
+                      ))}
+                    </div>
                   </TableCell>
                   <TableCell className="max-w-56 truncate text-muted-foreground">{i.description}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatEuro(i.cost)}</TableCell>
@@ -163,6 +228,8 @@ type PersonGroup = {
     percentage: number
     imputed: number
     costType: CostType
+    categories: { id: string; name: string }[]
+    categoryIds: string[]
   }[]
 }
 
@@ -170,12 +237,15 @@ function editFromGroup(g: PersonGroup): PayrollAssignmentEdit {
   const months = g.entries.map((e) => e.month).sort()
   const pcts = [...new Set(g.entries.map((e) => e.percentage))]
   const types = [...new Set(g.entries.map((e) => e.costType))]
+  const catKey = (ids: string[]) => [...ids].sort().join(",")
+  const catSets = [...new Set(g.entries.map((e) => catKey(e.categoryIds)))]
   return {
     payrollId: g.payrollId,
     from: months[0]!,
     to: months[months.length - 1]!,
     percentage: pcts.length === 1 ? pcts[0]! : g.entries[0]!.percentage,
     costType: types.length === 1 ? types[0]! : "direct",
+    categoryIds: catSets.length === 1 ? g.entries[0]!.categoryIds : [],
     entryIdsByMonth: g.entries.map((e) => ({ entryId: e.entryId, month: e.month })),
   }
 }
@@ -184,24 +254,30 @@ export function AssignedPayroll({
   projectId,
   groups,
   payrolls,
+  categories = [],
   defaultFrom,
   defaultTo,
 }: {
   projectId: string
   groups: PersonGroup[]
   payrolls: PayrollOption[]
+  categories?: { id: string; name: string }[]
   defaultFrom?: string | null
   defaultTo?: string | null
 }) {
   const [pending, start] = useTransition()
   const [tipus, setTipus] = useState<CostTypeFilter>("all")
+  const [categoria, setCategoria] = useState<CategoryFilter>("all")
   const [edit, setEdit] = useState<PayrollAssignmentEdit | null>(null)
 
   const filtered = useMemo(() => {
-    if (tipus === "all") return groups
     return groups
       .map((g) => {
-        const entries = g.entries.filter((e) => e.costType === tipus)
+        const entries = g.entries.filter(
+          (e) =>
+            (tipus === "all" || e.costType === tipus) &&
+            matchesCategory(e.categoryIds, categoria)
+        )
         if (!entries.length) return null
         return {
           ...g,
@@ -210,7 +286,7 @@ export function AssignedPayroll({
         }
       })
       .filter((g): g is PersonGroup => g != null)
-  }, [groups, tipus])
+  }, [groups, tipus, categoria])
 
   if (groups.length === 0)
     return <p className="py-8 text-center text-sm text-muted-foreground">Cap nòmina assignada.</p>
@@ -223,12 +299,14 @@ export function AssignedPayroll({
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-2 border-b px-4 py-2">
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
         <CostTypeFilterSelect value={tipus} onChange={setTipus} />
+        <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
       </div>
       <AssignPayrollDialog
         projectId={projectId}
         payrolls={payrolls}
+        categories={categories}
         defaultFrom={defaultFrom}
         defaultTo={defaultTo}
         edit={edit}
@@ -245,6 +323,11 @@ export function AssignedPayroll({
             const months = g.entries.map((e) => e.month).sort()
             const pcts = [...new Set(g.entries.map((e) => e.percentage))]
             const types = [...new Set(g.entries.map((e) => e.costType))]
+            const catNames = [
+              ...new Map(
+                g.entries.flatMap((e) => e.categories).map((c) => [c.id, c.name] as const)
+              ).values(),
+            ]
             return (
               <details key={g.payrollId} className="group">
                 <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -262,6 +345,11 @@ export function AssignedPayroll({
                   {types.map((t) => (
                     <Badge key={t} variant={t === "indirect" ? "outline" : "secondary"}>
                       {COST_TYPE_LABELS[t]}
+                    </Badge>
+                  ))}
+                  {catNames.map((name) => (
+                    <Badge key={name} variant="outline" className="font-normal">
+                      {name}
                     </Badge>
                   ))}
                   <span className="ml-auto font-medium tabular-nums">{formatEuro(g.total)}</span>
@@ -315,15 +403,23 @@ export function AssignedPayroll({
                               to: e.month,
                               percentage: e.percentage,
                               costType: e.costType,
+                              categoryIds: e.categoryIds,
                               entryIdsByMonth: [{ entryId: e.entryId, month: e.month }],
                             })
                           }
                         >
                           <TableCell className="pl-12">{formatMonth(e.month)}</TableCell>
                           <TableCell>
-                            <Badge variant={e.costType === "indirect" ? "outline" : "secondary"}>
-                              {COST_TYPE_LABELS[e.costType]}
-                            </Badge>
+                            <div className="flex flex-wrap gap-1">
+                              <Badge variant={e.costType === "indirect" ? "outline" : "secondary"}>
+                                {COST_TYPE_LABELS[e.costType]}
+                              </Badge>
+                              {e.categories.map((c) => (
+                                <Badge key={c.id} variant="outline" className="font-normal">
+                                  {c.name}
+                                </Badge>
+                              ))}
+                            </div>
                           </TableCell>
                           <TableCell className="text-right tabular-nums">{formatEuro(e.amount)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatPct(e.percentage)}</TableCell>

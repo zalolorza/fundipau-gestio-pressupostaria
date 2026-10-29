@@ -10,6 +10,8 @@ import type { SupplierInvoice } from "@/db/schema"
 export function InvoiceTableRow({
   invoice,
   allocations,
+  categoryIds,
+  categories,
   projectOptions,
   suppliers,
   children,
@@ -17,6 +19,8 @@ export function InvoiceTableRow({
 }: {
   invoice: SupplierInvoice
   allocations: { id: string; percentage: number }[]
+  categoryIds?: string[]
+  categories?: React.ComponentProps<typeof InvoiceRowActions>["categories"]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: React.ComponentProps<typeof InvoiceRowActions>["suppliers"]
   children: React.ReactNode
@@ -30,6 +34,8 @@ export function InvoiceTableRow({
         <InvoiceRowActions
           invoice={invoice}
           allocations={allocations}
+          categoryIds={categoryIds}
+          categories={categories}
           projectOptions={projectOptions}
           suppliers={suppliers}
           open={open}

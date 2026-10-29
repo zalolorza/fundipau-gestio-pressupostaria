@@ -2,6 +2,10 @@
 
 import { PlusIcon, Trash2Icon } from "lucide-react"
 
+import {
+  CategoryPicker,
+  type CategoryRef,
+} from "@/components/categories/category-picker"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,7 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { round2 } from "@/lib/format"
 
-export type AllocationRow = { id: string; percentage: number; costType?: CostType }
+export type AllocationRow = {
+  id: string
+  percentage: number
+  costType?: CostType
+  categoryIds?: string[]
+}
 export type AllocationOption = { id: string; name: string; hint?: string; disabled?: boolean }
 
 export function allocationSum(rows: AllocationRow[]) {
@@ -34,6 +43,8 @@ export function AllocationEditor({
   itemLabel,
   emptyText,
   withCostType = false,
+  categories,
+  onCatalogChange,
 }: {
   value: AllocationRow[]
   onChange: (rows: AllocationRow[]) => void
@@ -43,7 +54,11 @@ export function AllocationEditor({
   emptyText?: string
   /** Mostra el selector directe/indirecte per fila (assignacions de nòmina). */
   withCostType?: boolean
+  /** Catàleg de categories; si hi és, mostra el picker per fila (nòmines). */
+  categories?: CategoryRef[]
+  onCatalogChange?: (next: CategoryRef[]) => void
 }) {
+  const withCategories = !!categories
   const sum = allocationSum(value)
   const error = allocationError(value, mode)
   const used = new Set(value.map((r) => r.id))
@@ -67,59 +82,69 @@ export function AllocationEditor({
         </p>
       )}
       {value.map((row, i) => (
-        <div key={i} className="flex flex-wrap items-center gap-2">
-          <Select value={row.id} onValueChange={(id) => update(i, { id })}>
-            <SelectTrigger className="min-w-0 flex-1 basis-40">
-              <SelectValue placeholder={`Tria ${itemLabel}…`} />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((o) => (
-                <SelectItem key={o.id} value={o.id} disabled={o.disabled || (used.has(o.id) && o.id !== row.id)}>
-                  {o.name}
-                  {o.hint && <span className="text-muted-foreground"> · {o.hint}</span>}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {withCostType && (
-            <Select
-              value={row.costType ?? "direct"}
-              onValueChange={(v) => update(i, { costType: v as CostType })}
-            >
-              <SelectTrigger className="w-32 shrink-0" aria-label="Tipus de cost">
-                <SelectValue />
+        <div key={i} className="space-y-2 rounded-lg border border-transparent p-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={row.id} onValueChange={(id) => update(i, { id })}>
+              <SelectTrigger className="min-w-0 flex-1 basis-40">
+                <SelectValue placeholder={`Tria ${itemLabel}…`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
-                <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                {options.map((o) => (
+                  <SelectItem key={o.id} value={o.id} disabled={o.disabled || (used.has(o.id) && o.id !== row.id)}>
+                    {o.name}
+                    {o.hint && <span className="text-muted-foreground"> · {o.hint}</span>}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-          )}
-          <div className="relative w-24 shrink-0">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min={0}
-              max={100}
-              step="0.01"
-              value={Number.isNaN(row.percentage) ? "" : row.percentage}
-              onChange={(e) => update(i, { percentage: e.target.valueAsNumber })}
-              className="pr-6 text-right"
-              aria-label="Percentatge"
-            />
-            <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
-              %
-            </span>
+            {withCostType && (
+              <Select
+                value={row.costType ?? "direct"}
+                onValueChange={(v) => update(i, { costType: v as CostType })}
+              >
+                <SelectTrigger className="w-32 shrink-0" aria-label="Tipus de cost">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
+                  <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <div className="relative w-24 shrink-0">
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step="0.01"
+                value={Number.isNaN(row.percentage) ? "" : row.percentage}
+                onChange={(e) => update(i, { percentage: e.target.valueAsNumber })}
+                className="pr-6 text-right"
+                aria-label="Percentatge"
+              />
+              <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+                %
+              </span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => onChange(value.filter((_, idx) => idx !== i))}
+              aria-label="Elimina"
+            >
+              <Trash2Icon />
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => onChange(value.filter((_, idx) => idx !== i))}
-            aria-label="Elimina"
-          >
-            <Trash2Icon />
-          </Button>
+          {withCategories && (
+            <CategoryPicker
+              categories={categories!}
+              value={row.categoryIds ?? []}
+              onChange={(categoryIds) => update(i, { categoryIds })}
+              onCatalogChange={onCatalogChange}
+            />
+          )}
         </div>
       ))}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -135,6 +160,7 @@ export function AllocationEditor({
                   id: "",
                   percentage: Math.max(0, round2((mode === "exact" ? 100 : 100) - sum)),
                   ...(withCostType ? { costType: "direct" as const } : {}),
+                  ...(withCategories ? { categoryIds: [] } : {}),
                 },
               ])
             }

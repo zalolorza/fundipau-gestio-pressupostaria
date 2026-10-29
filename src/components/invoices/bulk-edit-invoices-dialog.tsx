@@ -5,6 +5,7 @@ import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
+import { CategoryPicker, type CategoryRef } from "@/components/categories/category-picker"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -47,6 +48,7 @@ export function BulkEditInvoicesDialog({
   invoiceIds,
   projectOptions,
   suppliers,
+  categories = [],
   defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
   onDone,
 }: {
@@ -55,6 +57,7 @@ export function BulkEditInvoicesDialog({
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  categories?: CategoryRef[]
   defaultVatDeductibleRate?: number
   onDone?: () => void
 }) {
@@ -76,6 +79,7 @@ export function BulkEditInvoicesDialog({
             invoiceIds={invoiceIds}
             projectOptions={projectOptions}
             suppliers={suppliers}
+            categories={categories}
             defaultVatDeductibleRate={defaultVatDeductibleRate}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
@@ -93,6 +97,7 @@ function BulkEditForm({
   invoiceIds,
   projectOptions,
   suppliers,
+  categories: initialCategories,
   defaultVatDeductibleRate,
   onCancel,
   onDone,
@@ -100,6 +105,7 @@ function BulkEditForm({
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  categories: CategoryRef[]
   defaultVatDeductibleRate: number
   onCancel: () => void
   onDone: () => void
@@ -110,6 +116,7 @@ function BulkEditForm({
   const [changeVatDeductible, setChangeVatDeductible] = useState(false)
   const [changeIrpf, setChangeIrpf] = useState(false)
   const [changeCostType, setChangeCostType] = useState(false)
+  const [changeCategories, setChangeCategories] = useState(false)
   const [changeAlloc, setChangeAlloc] = useState(false)
   const [supplierId, setSupplierId] = useState(NONE)
   const [fiscal, setFiscal] = useState<Fiscal>(EMPTY)
@@ -117,12 +124,20 @@ function BulkEditForm({
   const [vatDeductibleRate, setVatDeductibleRate] = useState(defaultVatDeductibleRate)
   const [irpfRate, setIrpfRate] = useState(0)
   const [costType, setCostType] = useState<CostType>("direct")
+  const [categoryIds, setCategoryIds] = useState<string[]>([])
+  const [catalog, setCatalog] = useState(initialCategories)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
 
   const linked = supplierId !== NONE ? suppliers.find((s) => s.id === supplierId) : undefined
   const n = invoiceIds.length
   const hasChange =
-    changeSupplier || changeVat || changeVatDeductible || changeIrpf || changeCostType || changeAlloc
+    changeSupplier ||
+    changeVat ||
+    changeVatDeductible ||
+    changeIrpf ||
+    changeCostType ||
+    changeCategories ||
+    changeAlloc
 
   function onPickSupplier(id: string) {
     setSupplierId(id)
@@ -162,6 +177,7 @@ function BulkEditForm({
         vatDeductibleRate: changeVatDeductible ? vatDeductibleRate : undefined,
         irpfRate: changeIrpf ? irpfRate : undefined,
         costType: changeCostType ? costType : undefined,
+        categoryIds: changeCategories ? categoryIds : undefined,
         allocations: changeAlloc ? alloc : undefined,
       })
       if (!res.ok) return void toast.error(res.error)
@@ -347,6 +363,31 @@ function BulkEditForm({
                     <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
                   </SelectContent>
                 </Select>
+              </Field>
+            )}
+          </FieldSet>
+
+          <FieldSet>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="bulk-categories"
+                checked={changeCategories}
+                onCheckedChange={(v) => setChangeCategories(v === true)}
+              />
+              <FieldLabel htmlFor="bulk-categories">Canviar les categories</FieldLabel>
+            </Field>
+            {changeCategories && (
+              <Field>
+                <FieldLabel>Categories</FieldLabel>
+                <CategoryPicker
+                  categories={catalog}
+                  value={categoryIds}
+                  onChange={setCategoryIds}
+                  onCatalogChange={setCatalog}
+                />
+                <FieldDescription>
+                  Substitueix les categories de totes les factures seleccionades.
+                </FieldDescription>
               </Field>
             )}
           </FieldSet>

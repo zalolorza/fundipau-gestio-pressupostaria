@@ -17,9 +17,11 @@ const activeFilterClass = "bg-muted border-muted-foreground/20"
 export function InvoiceFilters({
   suppliers,
   projects,
+  categories = [],
 }: {
   suppliers: { id: string; name: string }[]
   projects: { id: string; name: string }[]
+  categories?: { id: string; name: string }[]
 }) {
   const params = useSearchParams()
   const { setParam, replaceParams } = useInvoiceListNav()
@@ -37,10 +39,11 @@ export function InvoiceFilters({
   const projecte = params.get("projecte")
   const assignacio = params.get("assignacio")
   const tipus = costTypeFromParam(params.get("tipus"))
+  const categoria = params.get("categoria")
   const des = params.get("des")
   const fins = params.get("fins")
   const qActive = Boolean(q.trim())
-  const hasFilters = qActive || des || fins || proveidor || projecte || assignacio || tipus
+  const hasFilters = qActive || des || fins || proveidor || projecte || assignacio || tipus || categoria
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -110,6 +113,24 @@ export function InvoiceFilters({
           ))}
         </SelectContent>
       </Select>
+      <Select
+        value={categoria ?? "all"}
+        onValueChange={(v) => setParam("categoria", v === "all" ? "" : v)}
+      >
+        <SelectTrigger className={cn("w-48", categoria && activeFilterClass)} aria-label="Categoria">
+          <SelectValue placeholder="Categoria" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Totes les categories</SelectItem>
+          <SelectItem value="none">Sense categoria</SelectItem>
+          {categories.length > 0 && <SelectSeparator />}
+          {categories.map((c) => (
+            <SelectItem key={c.id} value={c.id}>
+              {c.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <DatePicker
         className={cn("w-40", des && activeFilterClass)}
         aria-label="Des de"
@@ -132,7 +153,17 @@ export function InvoiceFilters({
           onClick={() => {
             setQ("")
             replaceParams((sp) => {
-              for (const key of ["q", "des", "fins", "proveidor", "projecte", "assignacio", "tipus"]) sp.delete(key)
+              for (const key of [
+                "q",
+                "des",
+                "fins",
+                "proveidor",
+                "projecte",
+                "assignacio",
+                "tipus",
+                "categoria",
+              ])
+                sp.delete(key)
             })
           }}
         >

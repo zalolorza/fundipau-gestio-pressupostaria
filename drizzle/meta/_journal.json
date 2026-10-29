@@ -57,6 +57,13 @@
       "when": 1793202506353,
       "tag": "0007_sudden_adam_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793223805342,
+      "tag": "0008_awesome_white_tiger",
+      "breakpoints": true
     }
   ]
 }

@@ -5,18 +5,23 @@ import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header"
 import { PayrollCreateDialog } from "@/components/payroll/payroll-create-dialog"
 import { PayrollsBrowser } from "@/components/payroll/payrolls-browser"
 import { Button } from "@/components/ui/button"
-import { getProjectOptions, listPayrolls } from "@/server/queries"
+import { getProjectOptions, listCategories, listPayrolls } from "@/server/queries"
 
 export const metadata: Metadata = { title: "Nòmines" }
 
 export default async function PayrollsPage() {
-  const [payrolls, projects] = await Promise.all([listPayrolls(), getProjectOptions()])
+  const [payrolls, projects, categories] = await Promise.all([
+    listPayrolls(),
+    getProjectOptions(),
+    listCategories(),
+  ])
   const today = new Date().toISOString().slice(0, 10)
   const projectOptions = projects.map((p) => ({
     id: p.id,
     name: p.name,
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }))
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }))
   return (
     <>
       <PageHeader crumbs={[{ label: "Costos" }, { label: "Nòmines" }]} />
@@ -25,7 +30,7 @@ export default async function PayrollsPage() {
           title="Nòmines"
           description="Cada nòmina té un registre per mes, que es pot repartir entre projectes."
         >
-          <PayrollCreateDialog projectOptions={projectOptions}>
+          <PayrollCreateDialog projectOptions={projectOptions} categories={categoryOptions}>
             <Button>
               <PlusIcon /> Nova nòmina
             </Button>

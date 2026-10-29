@@ -5,9 +5,12 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm"
 import { db } from "@/db"
 import {
   clients,
+  costCategories,
   invitations,
+  invoiceCategories,
   invoiceProjects,
   payrollEntries,
+  payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
   projectClients,
@@ -131,6 +134,25 @@ export async function getClientOptions() {
   return db.select({ id: clients.id, name: clients.name }).from(clients).orderBy(asc(clients.name))
 }
 
+export async function listCategories() {
+  return db
+    .select({
+      id: costCategories.id,
+      name: costCategories.name,
+      sortOrder: costCategories.sortOrder,
+    })
+    .from(costCategories)
+    .orderBy(asc(costCategories.sortOrder), asc(costCategories.name))
+}
+
+export type CategoryOption = Awaited<ReturnType<typeof listCategories>>[number]
+
+export type CategoryTotal = {
+  id: string | null
+  name: string
+  amount: number
+}
+
 /* ------------------------------ Costos base ------------------------------ */
 
 /** Cost imputat per projecte (factures + nòmines). Opcionalment filtrat per període. */
@@ -196,6 +218,124 @@ async function costsByProject(projectIds?: string[], from?: string, to?: string)
   return map
 }
 
+/** Totals per categoria (etiquetes). L'import imputat compta sencer a cada etiqueta. */
+async function categoryTotalsByProject(projectIds?: string[], from?: string, to?: string) {
+  const invWhere = [
+    projectIds ? inArray(invoiceProjects.projectId, projectIds) : undefined,
+    from ? gte(supplierInvoices.issueDate, from) : undefined,
+    to ? lte(supplierInvoices.issueDate, endOfMonth(to)) : undefined,
+  ].filter(Boolean)
+  const payWhere = [
+    projectIds ? inArray(payrollEntryProjects.projectId, projectIds) : undefined,
+    from ? gte(payrollEntries.month, toMonth(from)) : undefined,
+    to ? lte(payrollEntries.month, toMonth(to)) : undefined,
+  ].filter(Boolean)
+
+  const imputedInv = sql<string>`(${supplierInvoices.baseAmount} + ${supplierInvoices.vatAmount} * ${supplierInvoices.vatDeductibleRate} / 100) * ${invoiceProjects.percentage} / 100`
+  const imputedPay = sql<string>`${payrollEntries.amount} * ${payrollEntryProjects.percentage} / 100`
+
+  const [invTagged, invNone, payTagged, payNone] = await Promise.all([
+    db
+      .select({
+        projectId: invoiceProjects.projectId,
+        categoryId: invoiceCategories.categoryId,
+        name: costCategories.name,
+        cost: sql<string>`coalesce(sum(${imputedInv}), 0)`,
+      })
+      .from(invoiceProjects)
+      .innerJoin(supplierInvoices, eq(supplierInvoices.id, invoiceProjects.invoiceId))
+      .innerJoin(invoiceCategories, eq(invoiceCategories.invoiceId, supplierInvoices.id))
+      .innerJoin(costCategories, eq(costCategories.id, invoiceCategories.categoryId))
+      .where(and(...invWhere))
+      .groupBy(invoiceProjects.projectId, invoiceCategories.categoryId, costCategories.name),
+    db
+      .select({
+        projectId: invoiceProjects.projectId,
+        cost: sql<string>`coalesce(sum(${imputedInv}), 0)`,
+      })
+      .from(invoiceProjects)
+      .innerJoin(supplierInvoices, eq(supplierInvoices.id, invoiceProjects.invoiceId))
+      .where(
+        and(
+          ...invWhere,
+          sql`not exists (select 1 from invoice_categories ic where ic.invoice_id = ${supplierInvoices.id})`
+        )
+      )
+      .groupBy(invoiceProjects.projectId),
+    db
+      .select({
+        projectId: payrollEntryProjects.projectId,
+        categoryId: payrollEntryProjectCategories.categoryId,
+        name: costCategories.name,
+        cost: sql<string>`coalesce(sum(${imputedPay}), 0)`,
+      })
+      .from(payrollEntryProjects)
+      .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
+      .innerJoin(
+        payrollEntryProjectCategories,
+        and(
+          eq(payrollEntryProjectCategories.entryId, payrollEntryProjects.entryId),
+          eq(payrollEntryProjectCategories.projectId, payrollEntryProjects.projectId)
+        )
+      )
+      .innerJoin(costCategories, eq(costCategories.id, payrollEntryProjectCategories.categoryId))
+      .where(and(...payWhere))
+      .groupBy(
+        payrollEntryProjects.projectId,
+        payrollEntryProjectCategories.categoryId,
+        costCategories.name
+      ),
+    db
+      .select({
+        projectId: payrollEntryProjects.projectId,
+        cost: sql<string>`coalesce(sum(${imputedPay}), 0)`,
+      })
+      .from(payrollEntryProjects)
+      .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
+      .where(
+        and(
+          ...payWhere,
+          sql`not exists (
+            select 1 from payroll_entry_project_categories pc
+            where pc.entry_id = ${payrollEntryProjects.entryId}
+              and pc.project_id = ${payrollEntryProjects.projectId}
+          )`
+        )
+      )
+      .groupBy(payrollEntryProjects.projectId),
+  ])
+
+  const map = new Map<string, Map<string, CategoryTotal>>()
+  const get = (projectId: string) => {
+    if (!map.has(projectId)) map.set(projectId, new Map())
+    return map.get(projectId)!
+  }
+  const add = (projectId: string, id: string | null, name: string, amount: number) => {
+    if (!(amount > 0)) return
+    const key = id ?? "__none__"
+    const bucket = get(projectId)
+    const prev = bucket.get(key)
+    if (prev) prev.amount = round2(prev.amount + amount)
+    else bucket.set(key, { id, name, amount: round2(amount) })
+  }
+
+  for (const r of invTagged) add(r.projectId, r.categoryId, r.name, Number(r.cost))
+  for (const r of payTagged) add(r.projectId, r.categoryId, r.name, Number(r.cost))
+  for (const r of invNone) add(r.projectId, null, "Sense categoria", Number(r.cost))
+  for (const r of payNone) add(r.projectId, null, "Sense categoria", Number(r.cost))
+
+  const out = new Map<string, CategoryTotal[]>()
+  for (const [projectId, bucket] of map) {
+    const list = [...bucket.values()].sort((a, b) => {
+      if (a.id == null) return 1
+      if (b.id == null) return -1
+      return a.name.localeCompare(b.name)
+    })
+    out.set(projectId, list)
+  }
+  return out
+}
+
 /* ------------------------------- Projectes ------------------------------- */
 
 export async function listProjects() {
@@ -224,7 +364,7 @@ export async function getProject(id: string) {
   })
   if (!project) return null
 
-  const [invoiceRows, payrollRows, costs] = await Promise.all([
+  const [invoiceRows, payrollRows, costs, categoryTotalsMap] = await Promise.all([
     db
       .select({
         invoice: supplierInvoices,
@@ -251,20 +391,59 @@ export async function getProject(id: string) {
       .where(eq(payrollEntryProjects.projectId, id))
       .orderBy(desc(payrollEntries.month), asc(payrolls.personName)),
     costsByProject([id]),
+    categoryTotalsByProject([id]),
   ])
 
   const invoiceIds = invoiceRows.map((r) => r.invoice.id)
-  const allAllocations =
+  const entryIds = payrollRows.map((r) => r.entryId)
+
+  const [allAllocations, invoiceCats, payrollCats] = await Promise.all([
     invoiceIds.length === 0
-      ? []
-      : await db
+      ? Promise.resolve([] as { invoiceId: string; projectId: string; percentage: number }[])
+      : db
           .select({
             invoiceId: invoiceProjects.invoiceId,
             projectId: invoiceProjects.projectId,
             percentage: invoiceProjects.percentage,
           })
           .from(invoiceProjects)
-          .where(inArray(invoiceProjects.invoiceId, invoiceIds))
+          .where(inArray(invoiceProjects.invoiceId, invoiceIds)),
+    invoiceIds.length === 0
+      ? Promise.resolve(
+          [] as { invoiceId: string; categoryId: string; name: string }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceCategories.invoiceId,
+            categoryId: costCategories.id,
+            name: costCategories.name,
+          })
+          .from(invoiceCategories)
+          .innerJoin(costCategories, eq(costCategories.id, invoiceCategories.categoryId))
+          .where(inArray(invoiceCategories.invoiceId, invoiceIds)),
+    entryIds.length === 0
+      ? Promise.resolve(
+          [] as { entryId: string; projectId: string; categoryId: string; name: string }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryProjectCategories.entryId,
+            projectId: payrollEntryProjectCategories.projectId,
+            categoryId: costCategories.id,
+            name: costCategories.name,
+          })
+          .from(payrollEntryProjectCategories)
+          .innerJoin(
+            costCategories,
+            eq(costCategories.id, payrollEntryProjectCategories.categoryId)
+          )
+          .where(
+            and(
+              eq(payrollEntryProjectCategories.projectId, id),
+              inArray(payrollEntryProjectCategories.entryId, entryIds)
+            )
+          ),
+  ])
 
   const allocationsByInvoice = new Map<string, { id: string; percentage: number }[]>()
   for (const a of allAllocations) {
@@ -273,14 +452,34 @@ export async function getProject(id: string) {
     allocationsByInvoice.set(a.invoiceId, list)
   }
 
+  const catsByInvoice = new Map<string, { id: string; name: string }[]>()
+  for (const c of invoiceCats) {
+    const list = catsByInvoice.get(c.invoiceId) ?? []
+    list.push({ id: c.categoryId, name: c.name })
+    catsByInvoice.set(c.invoiceId, list)
+  }
+
+  const catsByEntry = new Map<string, { id: string; name: string }[]>()
+  for (const c of payrollCats) {
+    const key = `${c.entryId}:${c.projectId}`
+    const list = catsByEntry.get(key) ?? []
+    list.push({ id: c.categoryId, name: c.name })
+    catsByEntry.set(key, list)
+  }
+
   const invoices = invoiceRows.map((r) => {
     const cost = invoiceCost(r.invoice)
+    const categories = (catsByInvoice.get(r.invoice.id) ?? []).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
     return {
       ...r.invoice,
       cost,
       percentage: r.percentage,
       imputed: round2((cost * r.percentage) / 100),
       allocations: allocationsByInvoice.get(r.invoice.id) ?? [],
+      categories,
+      categoryIds: categories.map((c) => c.id),
     }
   })
 
@@ -299,6 +498,8 @@ export async function getProject(id: string) {
         percentage: number
         imputed: number
         costType: CostType
+        categories: { id: string; name: string }[]
+        categoryIds: string[]
       }[]
     }
   >()
@@ -313,6 +514,9 @@ export async function getProject(id: string) {
       })
     const g = byPerson.get(r.payrollId)!
     const imputed = round2((r.amount * r.percentage) / 100)
+    const categories = (catsByEntry.get(`${r.entryId}:${id}`) ?? []).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
     g.entries.push({
       entryId: r.entryId,
       month: r.month,
@@ -320,6 +524,8 @@ export async function getProject(id: string) {
       percentage: r.percentage,
       imputed,
       costType: r.costType,
+      categories,
+      categoryIds: categories.map((c) => c.id),
     })
     g.total = round2(g.total + imputed)
   }
@@ -331,6 +537,7 @@ export async function getProject(id: string) {
     invoices,
     payroll: [...byPerson.values()],
     costs: c,
+    categoryTotals: categoryTotalsMap.get(id) ?? [],
     ...projectProgress(c, project),
   }
 }
@@ -392,6 +599,21 @@ export async function getClient(id: string) {
  * Imports que s'haurien de facturar a un client en un període:
  * per a cada projecte del client, costos del període × % del client.
  */
+function scaleCosts(c: ProjectCosts, clientPct: number): ProjectCosts {
+  const s = (n: number) => round2((n * clientPct) / 100)
+  return {
+    invoices: s(c.invoices),
+    payroll: s(c.payroll),
+    total: s(c.total),
+    direct: s(c.direct),
+    indirect: s(c.indirect),
+    invoicesDirect: s(c.invoicesDirect),
+    invoicesIndirect: s(c.invoicesIndirect),
+    payrollDirect: s(c.payrollDirect),
+    payrollIndirect: s(c.payrollIndirect),
+  }
+}
+
 export async function getClientBilling(clientId: string, from: string, to: string) {
   const links = await db
     .select({ project: projects, percentage: projectClients.percentage })
@@ -404,7 +626,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
   const ids = links.map((l) => l.project.id)
   const pct = new Map(links.map((l) => [l.project.id, l.percentage]))
 
-  const [invRows, payRows] = await Promise.all([
+  const [invRows, payRows, costsMap, categoryTotalsMap] = await Promise.all([
     db
       .select({
         projectId: invoiceProjects.projectId,
@@ -441,6 +663,8 @@ export async function getClientBilling(clientId: string, from: string, to: strin
         )
       )
       .orderBy(asc(payrollEntries.month), asc(payrolls.personName)),
+    costsByProject(ids, from, to),
+    categoryTotalsByProject(ids, from, to),
   ])
 
   type Line = {
@@ -462,6 +686,8 @@ export async function getClientBilling(clientId: string, from: string, to: strin
     invoices: 0,
     payroll: 0,
     total: 0,
+    costs: scaleCosts(emptyCosts(), l.percentage),
+    categoryTotals: [] as CategoryTotal[],
   }))
   const byId = new Map(result.map((r) => [r.project.id, r]))
 
@@ -501,9 +727,18 @@ export async function getClientBilling(clientId: string, from: string, to: strin
   for (const g of result) {
     g.total = round2(g.invoices + g.payroll)
     g.lines.sort((a, b) => a.date.localeCompare(b.date))
+    g.costs = scaleCosts(costsMap.get(g.project.id) ?? emptyCosts(), g.clientPct)
+    g.categoryTotals = (categoryTotalsMap.get(g.project.id) ?? []).map((row) => ({
+      ...row,
+      amount: round2((row.amount * g.clientPct) / 100),
+    }))
   }
   return { projects: result, total: round2(result.reduce((s, g) => s + g.total, 0)) }
 }
+
+export type ClientBillingProject = Awaited<
+  ReturnType<typeof getClientBilling>
+>["projects"][number]
 
 /* -------------------------------- Factures ------------------------------- */
 
@@ -523,6 +758,8 @@ export async function listInvoices(filters: {
   projectId?: string
   assignment?: InvoiceAssignmentFilter
   costType?: CostType
+  /** UUID de categoria, o `"none"` per factures sense categoria. */
+  categoryId?: string
   sort?: InvoiceSortKey
   dir?: "asc" | "desc"
 }) {
@@ -534,6 +771,19 @@ export async function listInvoices(filters: {
         : filters.assignment === "parcial"
           ? sql`${assignedPctSql} < 100` // parcial + 100% pendent
           : undefined
+
+  const categoryWhere =
+    filters.categoryId && filters.categoryId !== "none"
+      ? inArray(
+          supplierInvoices.id,
+          db
+            .select({ id: invoiceCategories.invoiceId })
+            .from(invoiceCategories)
+            .where(eq(invoiceCategories.categoryId, filters.categoryId))
+        )
+      : filters.categoryId === "none"
+        ? sql`not exists (select 1 from invoice_categories ic where ic.invoice_id = ${supplierInvoices.id})`
+        : undefined
 
   const where = [
     filters.supplierId ? eq(supplierInvoices.supplierId, filters.supplierId) : undefined,
@@ -547,6 +797,7 @@ export async function listInvoices(filters: {
         )
       : undefined,
     filters.costType ? eq(supplierInvoices.costType, filters.costType) : undefined,
+    categoryWhere,
     filters.from ? gte(supplierInvoices.issueDate, filters.from) : undefined,
     filters.to ? lte(supplierInvoices.issueDate, filters.to) : undefined,
     filters.q
@@ -575,17 +826,28 @@ export async function listInvoices(filters: {
     with: {
       supplier: { columns: { id: true, name: true } },
       projects: { with: { project: { columns: { id: true, name: true } } } },
+      categories: { with: { category: { columns: { id: true, name: true } } } },
     },
   })
+
   const items = rows.map((r) => {
     const cost = invoiceCost(r)
     const assigned = round2(r.projects.reduce((s, p) => s + p.percentage, 0))
+    const categories = r.categories
+      .map((c) => c.category)
+      .sort((a, b) => a.name.localeCompare(b.name))
     return {
       ...r,
       cost,
       assigned,
       assignedTotal: round2((cost * assigned) / 100),
-      allocations: r.projects.map((p) => ({ projectId: p.projectId, name: p.project.name, percentage: p.percentage })),
+      allocations: r.projects.map((p) => ({
+        projectId: p.projectId,
+        name: p.project.name,
+        percentage: p.percentage,
+      })),
+      categories,
+      categoryIds: categories.map((c) => c.id),
     }
   })
 
@@ -694,7 +956,14 @@ export async function getPayroll(id: string) {
     with: {
       entries: {
         orderBy: [desc(payrollEntries.month)],
-        with: { projects: { with: { project: { columns: { id: true, name: true } } } } },
+        with: {
+          projects: {
+            with: {
+              project: { columns: { id: true, name: true } },
+              categories: { with: { category: { columns: { id: true, name: true } } } },
+            },
+          },
+        },
       },
     },
   })
@@ -703,12 +972,19 @@ export async function getPayroll(id: string) {
     ...p,
     entries: p.entries.map((e) => ({
       ...e,
-      allocations: e.projects.map((a) => ({
-        projectId: a.projectId,
-        name: a.project.name,
-        percentage: a.percentage,
-        costType: a.costType,
-      })),
+      allocations: e.projects.map((a) => {
+        const categories = a.categories
+          .map((c) => c.category)
+          .sort((x, y) => x.name.localeCompare(y.name))
+        return {
+          projectId: a.projectId,
+          name: a.project.name,
+          percentage: a.percentage,
+          costType: a.costType,
+          categories,
+          categoryIds: categories.map((c) => c.id),
+        }
+      }),
       assigned: round2(e.projects.reduce((s, a) => s + a.percentage, 0)),
     })),
   }

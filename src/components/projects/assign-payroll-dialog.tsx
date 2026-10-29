@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { CategoryPicker, type CategoryRef } from "@/components/categories/category-picker"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -37,6 +38,7 @@ export type PayrollAssignmentEdit = {
   to: string
   percentage: number
   costType?: CostType
+  categoryIds?: string[]
   /** Mesos actualment assignats; els que quedin fora del nou rang es desassignen. */
   entryIdsByMonth?: { entryId: string; month: string }[]
 }
@@ -44,6 +46,7 @@ export type PayrollAssignmentEdit = {
 export function AssignPayrollDialog({
   projectId,
   payrolls,
+  categories: initialCategories = [],
   defaultFrom,
   defaultTo,
   edit,
@@ -53,6 +56,7 @@ export function AssignPayrollDialog({
 }: {
   projectId: string
   payrolls: PayrollOption[]
+  categories?: CategoryRef[]
   defaultFrom?: string | null
   defaultTo?: string | null
   edit?: PayrollAssignmentEdit | null
@@ -70,15 +74,19 @@ export function AssignPayrollDialog({
   const [to, setTo] = useState(currentMonth().slice(0, 7))
   const [percentage, setPercentage] = useState(100)
   const [costType, setCostType] = useState<CostType>("direct")
+  const [categoryIds, setCategoryIds] = useState<string[]>([])
+  const [catalog, setCatalog] = useState(initialCategories)
   const [pending, start] = useTransition()
 
   const sel = payrolls.find((p) => p.id === payrollId)
 
   function hydrate() {
+    setCatalog(initialCategories)
     if (edit) {
       setPayrollId(edit.payrollId)
       setPercentage(edit.percentage)
       setCostType(edit.costType ?? "direct")
+      setCategoryIds(edit.categoryIds ?? [])
       setFrom(edit.from.slice(0, 7))
       setTo(edit.to.slice(0, 7))
       return
@@ -86,6 +94,7 @@ export function AssignPayrollDialog({
     setPayrollId("")
     setPercentage(100)
     setCostType("direct")
+    setCategoryIds([])
     setFrom((defaultFrom ?? currentMonth()).slice(0, 7))
     setTo((defaultTo && defaultTo < currentMonth() ? defaultTo : currentMonth()).slice(0, 7))
   }
@@ -109,7 +118,8 @@ export function AssignPayrollDialog({
         `${from}-01`,
         `${to}-01`,
         percentage,
-        costType
+        costType,
+        categoryIds
       )
       if (!res.ok) return void toast.error(res.error)
 
@@ -221,10 +231,19 @@ export function AssignPayrollDialog({
               </Select>
             </Field>
           </div>
+          <Field>
+            <FieldLabel>Categories</FieldLabel>
+            <CategoryPicker
+              categories={catalog}
+              value={categoryIds}
+              onChange={setCategoryIds}
+              onCatalogChange={setCatalog}
+            />
+          </Field>
           <FieldDescription>
             {isEdit
-              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge i tipus. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
-              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge i el tipus. Cap mes pot superar el 100 % entre tots els projectes."}
+              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
+              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
           </FieldDescription>
         </FieldGroup>
         <DialogFooter>

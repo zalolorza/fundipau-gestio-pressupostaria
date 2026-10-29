@@ -23,6 +23,7 @@ export function ProjectInvoiceMenu({
   current,
   projectOptions,
   suppliers,
+  categories = [],
   defaultVatDeductibleRate,
 }: {
   projectId: string
@@ -30,6 +31,7 @@ export function ProjectInvoiceMenu({
   current: Record<string, number>
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
+  categories?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
 }) {
   const [mode, setMode] = useState<"create" | "assign" | null>(null)
@@ -56,6 +58,7 @@ export function ProjectInvoiceMenu({
         }}
         projectOptions={projectOptions}
         suppliers={suppliers}
+        categories={categories}
         allocations={[{ id: projectId, percentage: 100 }]}
         defaultVatDeductibleRate={defaultVatDeductibleRate}
       />

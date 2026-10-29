@@ -21,7 +21,13 @@ import {
 } from "@/components/ui/table"
 import { getDefaultVatDeductibleRate } from "@/lib/app-settings"
 import { formatDate, formatEuro, round2 } from "@/lib/format"
-import { getProjectOptions, getSupplier, getSupplierOptions, listInvoices } from "@/server/queries"
+import {
+  getProjectOptions,
+  getSupplier,
+  getSupplierOptions,
+  listCategories,
+  listInvoices,
+} from "@/server/queries"
 
 const isUuid = (id: string) => /^[0-9a-f-]{36}$/i.test(id)
 
@@ -35,13 +41,15 @@ export async function generateMetadata({ params }: PageProps<"/proveidors/[id]">
 export default async function SupplierPage({ params }: PageProps<"/proveidors/[id]">) {
   const { id } = await params
   if (!isUuid(id)) notFound()
-  const [supplier, invoices, projects, supplierOptions, defaultVatDeductibleRate] = await Promise.all([
-    getSupplier(id),
-    listInvoices({ supplierId: id }),
-    getProjectOptions(),
-    getSupplierOptions(),
-    getDefaultVatDeductibleRate(),
-  ])
+  const [supplier, invoices, projects, supplierOptions, categories, defaultVatDeductibleRate] =
+    await Promise.all([
+      getSupplier(id),
+      listInvoices({ supplierId: id }),
+      getProjectOptions(),
+      getSupplierOptions(),
+      listCategories(),
+      getDefaultVatDeductibleRate(),
+    ])
   if (!supplier) notFound()
 
   const today = new Date().toISOString().slice(0, 10)
@@ -50,6 +58,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
     name: p.name,
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }))
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }))
   const sum = (k: "baseAmount" | "vatAmount" | "irpfAmount" | "total" | "cost") =>
     round2(invoices.reduce((s, i) => s + i[k], 0))
   const thisYear = today.slice(0, 4)
@@ -105,6 +114,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
               <InvoiceDialog
                 projectOptions={projectOptions}
                 suppliers={supplierOptions}
+                categories={categoryOptions}
                 defaultSupplierId={supplier.id}
                 defaultVatDeductibleRate={defaultVatDeductibleRate}
               >
@@ -137,12 +147,23 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                 </TableRow>
               )}
               {invoices.map((inv) => {
-                const { projects: _p, supplier: _s, allocations, assigned, cost: _c, ...row } = inv
+                const {
+                  projects: _p,
+                  supplier: _s,
+                  allocations,
+                  assigned,
+                  cost: _c,
+                  categories: _cats,
+                  categoryIds,
+                  ...row
+                } = inv
                 return (
                   <InvoiceTableRow
                     key={inv.id}
                     invoice={row}
                     allocations={allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
+                    categoryIds={categoryIds}
+                    categories={categoryOptions}
                     projectOptions={projectOptions}
                     suppliers={supplierOptions}
                   >

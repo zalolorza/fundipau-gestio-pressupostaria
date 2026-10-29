@@ -5,6 +5,7 @@ import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
+import { CategoryPicker, type CategoryRef } from "@/components/categories/category-picker"
 import { InvoiceFileField, type InvoiceFileValue } from "@/components/invoices/invoice-file-field"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -94,6 +95,8 @@ const allowedRate = (list: number[], v: number | undefined, fallback: number) =>
 export function InvoiceDialog({
   invoice,
   allocations,
+  categoryIds: initialCategoryIds,
+  categories: initialCategories = [],
   projectOptions,
   suppliers,
   defaultSupplierId,
@@ -104,6 +107,8 @@ export function InvoiceDialog({
 }: {
   invoice?: SupplierInvoice
   allocations?: AllocationRow[]
+  categoryIds?: string[]
+  categories?: CategoryRef[]
   projectOptions: { id: string; name: string; hint?: string }[]
   suppliers: SupplierOption[]
   /** Proveïdor preseleccionat en crear una factura (p. ex. des de la fitxa del proveïdor) */
@@ -120,6 +125,8 @@ export function InvoiceDialog({
   const [pending, start] = useTransition()
   const [extracting, setExtracting] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
+  const [categoryIds, setCategoryIds] = useState<string[]>([])
+  const [catalog, setCatalog] = useState<CategoryRef[]>(initialCategories)
   const [supplierId, setSupplierId] = useState<string>(NONE)
   const [fiscal, setFiscal] = useState<Fiscal>(EMPTY)
   const [createSupplier, setCreateSupplier] = useState(false)
@@ -148,6 +155,8 @@ export function InvoiceDialog({
 
   function reset() {
     setAlloc(allocations ?? [])
+    setCategoryIds(initialCategoryIds ?? [])
+    setCatalog(initialCategories)
     setCreateSupplier(false)
     setBase(invoice?.baseAmount ?? NaN)
     setNumber(invoice?.number ?? "")
@@ -300,7 +309,7 @@ export function InvoiceDialog({
           file,
         } as never,
         alloc,
-        { createSupplier: !linked && createSupplier }
+        { createSupplier: !linked && createSupplier, categoryIds }
       )
       if (!res.ok) return void toast.error(res.error)
       toast.success(
@@ -545,21 +554,32 @@ export function InvoiceDialog({
               </div>
             </FieldSet>
 
-            <Field>
-              <FieldLabel>Tipus de cost</FieldLabel>
-              <Select value={costType} onValueChange={(v) => setCostType(v as CostType)}>
-                <SelectTrigger className="w-full sm:w-56" aria-label="Tipus de cost">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
-                  <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
-                </SelectContent>
-              </Select>
-              <FieldDescription>
-                Directe si el cost està vinculat al projecte; indirecte si és d&apos;estructura o suport.
-              </FieldDescription>
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel>Tipus de cost</FieldLabel>
+                <Select value={costType} onValueChange={(v) => setCostType(v as CostType)}>
+                  <SelectTrigger className="w-full" aria-label="Tipus de cost">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
+                    <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FieldDescription>
+                  Directe si el cost està vinculat al projecte; indirecte si és d&apos;estructura o suport.
+                </FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>Categories</FieldLabel>
+                <CategoryPicker
+                  categories={catalog}
+                  value={categoryIds}
+                  onChange={setCategoryIds}
+                  onCatalogChange={setCatalog}
+                />
+              </Field>
+            </div>
 
             <FieldSet>
               <FieldLegend>Projectes</FieldLegend>

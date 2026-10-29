@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/card";
 import { formatEuro, formatMonth, round2 } from "@/lib/format";
 import { currentMonth } from "@/lib/months";
-import { getPayroll, getProjectOptions } from "@/server/queries";
+import { getPayroll, getProjectOptions, listCategories } from "@/server/queries";
 
 export async function generateMetadata({
   params,
@@ -29,9 +29,10 @@ export default async function PayrollPage({
 }: PageProps<"/nomines/[id]">) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [payroll, projects] = await Promise.all([
+  const [payroll, projects, categories] = await Promise.all([
     getPayroll(id),
     getProjectOptions(),
+    listCategories(),
   ]);
   if (!payroll) notFound();
 
@@ -41,6 +42,7 @@ export default async function PayrollPage({
     name: p.name,
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }));
+  const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const now = currentMonth();
   const months = payroll.entries.map((e) => e.month).sort();
   const first = months[0] ?? null;
@@ -129,6 +131,7 @@ export default async function PayrollPage({
               payrollId={payroll.id}
               entries={payroll.entries}
               projectOptions={projectOptions}
+              categories={categoryOptions}
               current={now}
             />
           </div>
