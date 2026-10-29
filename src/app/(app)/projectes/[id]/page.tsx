@@ -262,7 +262,7 @@ export default async function ProjectPage({
                           {formatPct(c.percentage)}
                         </Badge>
                         <Badge variant="tertiary">
-                          {formatEuro(project.maxBudget * c.percentage)}
+                          {formatEuro((project.maxBudget * c.percentage) / 100)}
                         </Badge>
                       </div>
                     </div>
