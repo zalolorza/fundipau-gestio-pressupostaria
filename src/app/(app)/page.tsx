@@ -183,10 +183,7 @@ export default async function HomePage() {
                     </span>
                   </span>
                 </div>
-                <BudgetProgress
-                  value={p.progress}
-                  breakdown={p.progressBreakdown}
-                />
+                <BudgetProgress value={p.progress} />
               </div>
             ))}
           </CardContent>

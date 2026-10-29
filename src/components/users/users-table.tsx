@@ -1,6 +1,6 @@
 "use client"
 
-import { Trash2Icon } from "lucide-react"
+import { CopyIcon, MailIcon, Trash2Icon } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useTransition } from "react"
 import { toast } from "sonner"
@@ -18,8 +18,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { isAdminRole } from "@/lib/auth-roles"
-import { removeUser, setUserRole } from "@/server/user-actions"
+import { createPasswordResetLink, removeUser, setUserRole } from "@/server/user-actions"
 
 type UserRow = {
   id: string
@@ -38,9 +39,11 @@ const dateFmt = new Intl.DateTimeFormat("ca-ES", {
 export function UsersTable({
   users,
   currentUserId,
+  smtpReady,
 }: {
   users: UserRow[]
   currentUserId: string
+  smtpReady: boolean
 }) {
   const router = useRouter()
   const [pending, start] = useTransition()
@@ -61,6 +64,27 @@ export function UsersTable({
     } catch {
       toast.error("No s’ha pogut copiar el correu")
     }
+  }
+
+  function sendResetEmail(userId: string, name: string) {
+    start(async () => {
+      const res = await createPasswordResetLink({ userId, sendEmail: true })
+      if (!res.ok) return void toast.error(res.error)
+      toast.success(`Correu de recuperació enviat a ${name}`)
+    })
+  }
+
+  function copyResetLink(userId: string) {
+    start(async () => {
+      const res = await createPasswordResetLink({ userId, sendEmail: false })
+      if (!res.ok) return void toast.error(res.error)
+      try {
+        await navigator.clipboard.writeText(res.data!.url)
+        toast.success("Enllaç de recuperació copiat (caduca en 1 h)")
+      } catch {
+        toast.error("No s’ha pogut copiar l’enllaç")
+      }
+    })
   }
 
   return (
@@ -101,7 +125,7 @@ export function UsersTable({
                     disabled={pending || isSelf}
                     onValueChange={(v) => changeRole(u.id, v as "user" | "admin")}
                   >
-                    <SelectTrigger className="w-42" size="sm">
+                    <SelectTrigger className="w-48" size="sm">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -113,26 +137,77 @@ export function UsersTable({
                 <TableCell className="text-muted-foreground">
                   {dateFmt.format(new Date(u.createdAt))}
                 </TableCell>
-                <TableCell className="pr-4 text-right">
-                  {!isSelf && (
-                    <ConfirmButton
-                      title="Elimina la usuària?"
-                      description={`S’eliminarà el compte de ${u.name} (${u.email}). Aquesta acció no es pot desfer.`}
-                      confirmLabel="Elimina"
-                      onConfirm={() =>
-                        start(async () => {
-                          const res = await removeUser(u.id)
-                          if (!res.ok) return void toast.error(res.error)
-                          toast.success("Usuària eliminada")
-                          router.refresh()
-                        })
-                      }
-                    >
-                      <Button type="button" variant="ghost" size="icon" title="Elimina">
-                        <Trash2Icon />
-                      </Button>
-                    </ConfirmButton>
-                  )}
+                <TableCell className="pr-4">
+                  <div className="flex justify-end gap-1" data-row-ignore>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            disabled={pending || !smtpReady}
+                            aria-label={`Enviar correu de recuperació a ${u.name}`}
+                            onClick={() => sendResetEmail(u.id, u.name)}
+                          >
+                            <MailIcon />
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {smtpReady
+                          ? "Enviar correu de recuperació de contrasenya"
+                          : "SMTP no configurat"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          disabled={pending}
+                          aria-label={`Copiar enllaç de recuperació de ${u.name}`}
+                          onClick={() => copyResetLink(u.id)}
+                        >
+                          <CopyIcon />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Copiar enllaç de recuperació</TooltipContent>
+                    </Tooltip>
+                    {!isSelf && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <ConfirmButton
+                              title="Elimina la usuària?"
+                              description={`S’eliminarà el compte de ${u.name} (${u.email}). Aquesta acció no es pot desfer.`}
+                              confirmLabel="Elimina"
+                              onConfirm={() =>
+                                start(async () => {
+                                  const res = await removeUser(u.id)
+                                  if (!res.ok) return void toast.error(res.error)
+                                  toast.success("Usuària eliminada")
+                                  router.refresh()
+                                })
+                              }
+                            >
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                aria-label={`Elimina ${u.name}`}
+                              >
+                                <Trash2Icon />
+                              </Button>
+                            </ConfirmButton>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Elimina</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
                 </TableCell>
               </InteractiveTableRow>
             )

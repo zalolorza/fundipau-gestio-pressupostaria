@@ -1,15 +1,19 @@
 "use server";
 
-import { hashPassword } from "better-auth/crypto";
+import { generateRandomString, hashPassword } from "better-auth/crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { z } from "zod";
 
 import { db } from "@/db";
-import { account, invitations, user } from "@/db/schema";
+import { account, invitations, user, verification } from "@/db/schema";
 import { auth, requireAdmin } from "@/lib/auth";
-import { isSmtpConfigured, sendInviteEmail } from "@/lib/email";
+import {
+  isSmtpConfigured,
+  sendInviteEmail,
+  sendPasswordResetEmail,
+} from "@/lib/email";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -151,6 +155,80 @@ export async function setUserRole(
     });
     revalidatePath("/usuaries");
     return { ok: true };
+  } catch (e) {
+    return fail(e);
+  }
+}
+
+const RESET_TTL_MS = 60 * 60 * 1000;
+
+function passwordResetUrl(token: string) {
+  const callbackURL = encodeURIComponent(
+    `${appBaseUrl()}/restablir-contrasenya`,
+  );
+  return `${appBaseUrl()}/api/auth/reset-password/${token}?callbackURL=${callbackURL}`;
+}
+
+/** Genera un enllaç de recuperació (i opcionalment envia el correu). Només admin. */
+export async function createPasswordResetLink(input: {
+  userId: string;
+  sendEmail?: boolean;
+}): Promise<ActionResult<{ url: string; emailSent: boolean }>> {
+  await requireAdmin();
+  try {
+    const userId = z.string().min(1).parse(input.userId);
+    const shouldEmail = input.sendEmail === true;
+
+    if (shouldEmail && !isSmtpConfigured()) {
+      return {
+        ok: false,
+        error: "L’SMTP no està configurat; no es pot enviar el correu",
+      };
+    }
+
+    const [target] = await db
+      .select({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+    if (!target) return { ok: false, error: "Usuària no trobada" };
+
+    const token = generateRandomString(24);
+    const expiresAt = new Date(Date.now() + RESET_TTL_MS);
+    await db.insert(verification).values({
+      id: crypto.randomUUID(),
+      identifier: `reset-password:${token}`,
+      value: target.id,
+      expiresAt,
+    });
+
+    const url = passwordResetUrl(token);
+    let emailSent = false;
+    if (shouldEmail) {
+      try {
+        await sendPasswordResetEmail({
+          to: target.email,
+          name: target.name,
+          url,
+        });
+        emailSent = true;
+      } catch (emailError) {
+        console.error(
+          "No s'ha pogut enviar el correu de recuperació",
+          emailError,
+        );
+        return {
+          ok: false,
+          error: "No s’ha pogut enviar el correu de recuperació",
+        };
+      }
+    }
+
+    return { ok: true, data: { url, emailSent } };
   } catch (e) {
     return fail(e);
   }

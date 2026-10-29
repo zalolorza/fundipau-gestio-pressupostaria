@@ -100,7 +100,7 @@
   --chart-4: var(--brand-yellow);
   --chart-5: var(--brand-magenta);
   --radius: 0.625rem;
-  --sidebar: var(--background);
+  --sidebar: var(--brand-mist);
   --sidebar-foreground: var(--brand-black);
   --sidebar-primary: var(--brand-blue);
   --sidebar-primary-foreground: var(--brand-white);

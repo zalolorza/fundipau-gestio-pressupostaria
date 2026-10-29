@@ -31,7 +31,7 @@ export default async function UsersPage() {
           <InviteDialog smtpReady={smtpReady} />
         </PageTitle>
 
-        <UsersTable users={users} currentUserId={session.user.id} />
+        <UsersTable users={users} currentUserId={session.user.id} smtpReady={smtpReady} />
 
         <PendingInvites
           invites={invites.map((inv) => ({
