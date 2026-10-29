@@ -257,7 +257,14 @@ export default async function ProjectPage({
                       >
                         {c.name}
                       </Link>
-                      <Badge variant="secondary">{formatPct(c.percentage)}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">
+                          {formatEuro(project.maxBudget * c.percentage)}
+                        </Badge>
+                        <Badge variant="tertiary">
+                          {formatPct(c.percentage)}
+                        </Badge>
+                      </div>
                     </div>
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {formatEuro((project.costs.total * c.percentage) / 100)}{" "}
