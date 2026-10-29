@@ -36,6 +36,7 @@ export function BulkEditEntriesDialog({
   payrollId,
   entryIds,
   projectOptions,
+  activitiesByProject = {},
   categories = [],
   onDone,
 }: {
@@ -44,12 +45,13 @@ export function BulkEditEntriesDialog({
   payrollId: string
   entryIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   categories?: CategoryRef[]
   onDone?: () => void
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>
             Editar {entryIds.length}{" "}
@@ -66,6 +68,7 @@ export function BulkEditEntriesDialog({
             payrollId={payrollId}
             entryIds={entryIds}
             projectOptions={projectOptions}
+            activitiesByProject={activitiesByProject}
             categories={categories}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
@@ -83,6 +86,7 @@ function BulkEditForm({
   payrollId,
   entryIds,
   projectOptions,
+  activitiesByProject,
   categories: initialCategories,
   onCancel,
   onDone,
@@ -90,6 +94,7 @@ function BulkEditForm({
   payrollId: string
   entryIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject: Record<string, { id: string; name: string }[]>
   categories: CategoryRef[]
   onCancel: () => void
   onDone: () => void
@@ -193,6 +198,7 @@ function BulkEditForm({
                   withCostType
                   categories={catalog}
                   onCatalogChange={setCatalog}
+                  activitiesByProject={activitiesByProject}
                 />
               </>
             )}

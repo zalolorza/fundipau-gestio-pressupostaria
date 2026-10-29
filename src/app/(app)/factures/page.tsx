@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button"
 import { getDefaultVatDeductibleRate } from "@/lib/app-settings"
 import { COST_TYPE_PARAMS, costTypeFromParam } from "@/lib/cost-type"
 import {
+  activitiesByProjectMap,
   invoiceAssignmentFilters,
   invoiceSortKeys,
   getProjectOptions,
   getSupplierOptions,
   listCategories,
   listInvoices,
+  listProjectActivities,
   type InvoiceAssignmentFilter,
   type InvoiceSortKey,
 } from "@/server/queries"
@@ -46,13 +48,15 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
     sort: isSort(sp.ordre) ? sp.ordre : undefined,
     dir: sp.dir === "asc" ? ("asc" as const) : sp.dir === "desc" ? ("desc" as const) : undefined,
   }
-  const [invoices, projects, suppliers, categories, defaultVatDeductibleRate] = await Promise.all([
-    listInvoices(filters),
-    getProjectOptions(),
-    getSupplierOptions(),
-    listCategories(),
-    getDefaultVatDeductibleRate(),
-  ])
+  const [invoices, projects, suppliers, categories, activities, defaultVatDeductibleRate] =
+    await Promise.all([
+      listInvoices(filters),
+      getProjectOptions(),
+      getSupplierOptions(),
+      listCategories(),
+      listProjectActivities(),
+      getDefaultVatDeductibleRate(),
+    ])
   const today = new Date().toISOString().slice(0, 10)
   const projectOptions = projects.map((p) => ({
     id: p.id,
@@ -60,6 +64,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }))
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }))
+  const activitiesByProject = activitiesByProjectMap(activities)
 
   return (
     <>
@@ -68,6 +73,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
         <PageTitle title="Factures de proveïdors" description="Factures rebudes i la seva imputació a projectes.">
           <InvoiceDialog
             projectOptions={projectOptions}
+            activitiesByProject={activitiesByProject}
             suppliers={suppliers}
             categories={categoryOptions}
             defaultVatDeductibleRate={defaultVatDeductibleRate}
@@ -82,6 +88,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/facture
           suppliers={suppliers}
           projects={projects.map((p) => ({ id: p.id, name: p.name }))}
           projectOptions={projectOptions}
+          activitiesByProject={activitiesByProject}
           categories={categoryOptions}
           defaultVatDeductibleRate={defaultVatDeductibleRate}
         />

@@ -23,11 +23,13 @@ import { getDefaultVatDeductibleRate } from "@/lib/app-settings";
 import { formatEuro, formatMonth } from "@/lib/format";
 import { currentMonth, endOfMonth } from "@/lib/months";
 import {
+  activitiesByProjectMap,
   getClientOptions,
   getDashboard,
   getProjectOptions,
   getSupplierOptions,
   listCategories,
+  listProjectActivities,
 } from "@/server/queries";
 
 export default async function HomePage() {
@@ -38,6 +40,7 @@ export default async function HomePage() {
     projects,
     suppliers,
     categories,
+    activities,
     defaultVatDeductibleRate,
   ] = await Promise.all([
     getDashboard(month),
@@ -45,6 +48,7 @@ export default async function HomePage() {
     getProjectOptions(),
     getSupplierOptions(),
     listCategories(),
+    listProjectActivities(),
     getDefaultVatDeductibleRate(),
   ]);
   const today = new Date().toISOString().slice(0, 10);
@@ -57,6 +61,7 @@ export default async function HomePage() {
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }));
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
+  const activitiesByProject = activitiesByProjectMap(activities);
   const monthInvoicesHref = `/factures?des=${month}&fins=${endOfMonth(month)}`;
 
   return (
@@ -96,6 +101,7 @@ export default async function HomePage() {
             action={
               <InvoiceDialog
                 projectOptions={projectOptions}
+                activitiesByProject={activitiesByProject}
                 suppliers={suppliers}
                 categories={categoryOptions}
                 defaultVatDeductibleRate={defaultVatDeductibleRate}

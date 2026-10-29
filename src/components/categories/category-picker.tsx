@@ -22,6 +22,7 @@ export function CategoryPicker({
   onCatalogChange,
   className,
   disabled,
+  compact = false,
 }: {
   categories: CategoryRef[]
   value: string[]
@@ -30,6 +31,8 @@ export function CategoryPicker({
   onCatalogChange?: (next: CategoryRef[]) => void
   className?: string
   disabled?: boolean
+  /** Només el botó (sense badges a sota); útil en files d'assignació. */
+  compact?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState("")
@@ -72,7 +75,7 @@ export function CategoryPicker({
     !categories.some((c) => c.name.toLowerCase() === filter.trim().toLowerCase())
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn(!compact && "space-y-1.5", className)}>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -83,10 +86,16 @@ export function CategoryPicker({
             aria-label="Categories"
           >
             <span className="truncate">{label}</span>
-            <ChevronsUpDownIcon className="size-4 opacity-50" />
+            <ChevronsUpDownIcon className="size-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+        <PopoverContent
+          className={cn(
+            "p-2",
+            compact ? "w-64" : "w-[var(--radix-popover-trigger-width)]"
+          )}
+          align="start"
+        >
           <Input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -132,7 +141,7 @@ export function CategoryPicker({
           )}
         </PopoverContent>
       </Popover>
-      {value.length > 0 && (
+      {!compact && value.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {value.map((id) => {
             const c = categories.find((x) => x.id === id)

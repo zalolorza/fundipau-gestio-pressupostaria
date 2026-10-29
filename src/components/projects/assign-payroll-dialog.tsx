@@ -4,6 +4,7 @@ import { useState, useTransition } from "react"
 import { toast } from "sonner"
 
 import { CategoryPicker, type CategoryRef } from "@/components/categories/category-picker"
+import type { ActivityRef } from "@/components/projects/project-activities"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -39,14 +40,18 @@ export type PayrollAssignmentEdit = {
   percentage: number
   costType?: CostType
   categoryIds?: string[]
+  activityId?: string | null
   /** Mesos actualment assignats; els que quedin fora del nou rang es desassignen. */
   entryIdsByMonth?: { entryId: string; month: string }[]
 }
+
+const NONE = "__none__"
 
 export function AssignPayrollDialog({
   projectId,
   payrolls,
   categories: initialCategories = [],
+  activities = [],
   defaultFrom,
   defaultTo,
   edit,
@@ -57,6 +62,7 @@ export function AssignPayrollDialog({
   projectId: string
   payrolls: PayrollOption[]
   categories?: CategoryRef[]
+  activities?: ActivityRef[]
   defaultFrom?: string | null
   defaultTo?: string | null
   edit?: PayrollAssignmentEdit | null
@@ -75,6 +81,7 @@ export function AssignPayrollDialog({
   const [percentage, setPercentage] = useState(100)
   const [costType, setCostType] = useState<CostType>("direct")
   const [categoryIds, setCategoryIds] = useState<string[]>([])
+  const [activityId, setActivityId] = useState<string | null>(null)
   const [catalog, setCatalog] = useState(initialCategories)
   const [pending, start] = useTransition()
 
@@ -87,6 +94,7 @@ export function AssignPayrollDialog({
       setPercentage(edit.percentage)
       setCostType(edit.costType ?? "direct")
       setCategoryIds(edit.categoryIds ?? [])
+      setActivityId(edit.activityId ?? null)
       setFrom(edit.from.slice(0, 7))
       setTo(edit.to.slice(0, 7))
       return
@@ -95,6 +103,7 @@ export function AssignPayrollDialog({
     setPercentage(100)
     setCostType("direct")
     setCategoryIds([])
+    setActivityId(null)
     setFrom((defaultFrom ?? currentMonth()).slice(0, 7))
     setTo((defaultTo && defaultTo < currentMonth() ? defaultTo : currentMonth()).slice(0, 7))
   }
@@ -119,7 +128,8 @@ export function AssignPayrollDialog({
         `${to}-01`,
         percentage,
         costType,
-        categoryIds
+        categoryIds,
+        activityId
       )
       if (!res.ok) return void toast.error(res.error)
 
@@ -231,6 +241,27 @@ export function AssignPayrollDialog({
               </Select>
             </Field>
           </div>
+          {activities.length > 0 && (
+            <Field>
+              <FieldLabel>Activitat</FieldLabel>
+              <Select
+                value={activityId ?? NONE}
+                onValueChange={(v) => setActivityId(v === NONE ? null : v)}
+              >
+                <SelectTrigger className="w-full" aria-label="Activitat">
+                  <SelectValue placeholder="Sense activitat" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>Sense activitat</SelectItem>
+                  {activities.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Field>
             <FieldLabel>Categories</FieldLabel>
             <CategoryPicker
@@ -242,8 +273,8 @@ export function AssignPayrollDialog({
           </Field>
           <FieldDescription>
             {isEdit
-              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
-              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
+              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus, activitat i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
+              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus, l'activitat i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
           </FieldDescription>
         </FieldGroup>
         <DialogFooter>

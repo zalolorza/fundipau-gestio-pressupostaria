@@ -64,6 +64,20 @@
       "when": 1793223805342,
       "tag": "0008_awesome_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793274548868,
+      "tag": "0009_motionless_enchantress",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793280270607,
+      "tag": "0010_fuzzy_colossus",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ export function InvoicesBrowser({
   suppliers,
   projects,
   projectOptions,
+  activitiesByProject = {},
   categories = [],
   defaultVatDeductibleRate,
 }: {
@@ -19,6 +20,7 @@ export function InvoicesBrowser({
   suppliers: SupplierOption[]
   projects: { id: string; name: string }[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   categories?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
 }) {
@@ -38,6 +40,7 @@ export function InvoicesBrowser({
         <InvoicesTable
           invoices={invoices}
           projectOptions={projectOptions}
+          activitiesByProject={activitiesByProject}
           suppliers={suppliers}
           categories={categories}
           defaultVatDeductibleRate={defaultVatDeductibleRate}

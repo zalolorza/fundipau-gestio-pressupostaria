@@ -47,6 +47,7 @@ export function BulkEditInvoicesDialog({
   onOpenChange,
   invoiceIds,
   projectOptions,
+  activitiesByProject = {},
   suppliers,
   categories = [],
   defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
@@ -56,6 +57,7 @@ export function BulkEditInvoicesDialog({
   onOpenChange: (open: boolean) => void
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories?: CategoryRef[]
   defaultVatDeductibleRate?: number
@@ -78,6 +80,7 @@ export function BulkEditInvoicesDialog({
             key={invoiceIds.join(",")}
             invoiceIds={invoiceIds}
             projectOptions={projectOptions}
+            activitiesByProject={activitiesByProject}
             suppliers={suppliers}
             categories={categories}
             defaultVatDeductibleRate={defaultVatDeductibleRate}
@@ -96,6 +99,7 @@ export function BulkEditInvoicesDialog({
 function BulkEditForm({
   invoiceIds,
   projectOptions,
+  activitiesByProject,
   suppliers,
   categories: initialCategories,
   defaultVatDeductibleRate,
@@ -104,6 +108,7 @@ function BulkEditForm({
 }: {
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories: CategoryRef[]
   defaultVatDeductibleRate: number
@@ -409,6 +414,7 @@ function BulkEditForm({
                   mode="max"
                   itemLabel="projecte"
                   emptyText="Sense assignar a cap projecte"
+                  activitiesByProject={activitiesByProject}
                 />
               </>
             )}

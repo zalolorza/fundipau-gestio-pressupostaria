@@ -34,6 +34,7 @@ type Entry = {
     name: string;
     percentage: number;
     costType: "direct" | "indirect";
+    activityId?: string | null;
     categoryIds?: string[];
     categories?: { id: string; name: string }[];
   }[];
@@ -43,6 +44,7 @@ export function EntriesTable({
   payrollId,
   entries,
   projectOptions,
+  activitiesByProject = {},
   categories = [],
   current,
   className,
@@ -50,6 +52,7 @@ export function EntriesTable({
   payrollId: string;
   entries: Entry[];
   projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject?: Record<string, { id: string; name: string }[]>;
   categories?: { id: string; name: string }[];
   current: string;
   className?: string;
@@ -205,8 +208,10 @@ export function EntriesTable({
                         percentage: a.percentage,
                         costType: a.costType,
                         categoryIds: a.categoryIds ?? [],
+                        activityId: a.activityId ?? null,
                       }))}
                       projectOptions={projectOptions}
+                      activitiesByProject={activitiesByProject}
                       categories={categories}
                       open={allocOpenId === e.id}
                       onOpenChange={(o) => setAllocOpenId(o ? e.id : null)}
@@ -215,15 +220,22 @@ export function EntriesTable({
                         variant="ghost"
                         className="h-auto flex-wrap justify-start gap-1 p-1 font-normal"
                       >
-                        {e.allocations.map((a) => (
-                          <Badge key={a.projectId} variant="secondary">
-                            {a.name} · {a.percentage} %
-                            {a.costType === "indirect" ? " · ind." : ""}
-                            {a.categories?.length
-                              ? ` · ${a.categories.map((c) => c.name).join(", ")}`
-                              : ""}
-                          </Badge>
-                        ))}
+                        {e.allocations.map((a) => {
+                          const activityName = a.activityId
+                            ? activitiesByProject[a.projectId]?.find((x) => x.id === a.activityId)
+                                ?.name
+                            : null
+                          return (
+                            <Badge key={a.projectId} variant="secondary">
+                              {a.name} · {a.percentage} %
+                              {a.costType === "indirect" ? " · ind." : ""}
+                              {activityName ? ` · ${activityName}` : ""}
+                              {a.categories?.length
+                                ? ` · ${a.categories.map((c) => c.name).join(", ")}`
+                                : ""}
+                            </Badge>
+                          )
+                        })}
                         {e.assigned < 100 && (
                           <Badge variant="outline" className="border-dashed">
                             {round2(100 - e.assigned)} % lliure
@@ -275,6 +287,7 @@ export function EntriesTable({
         payrollId={payrollId}
         entryIds={selectedIds}
         projectOptions={projectOptions}
+        activitiesByProject={activitiesByProject}
         categories={categories}
         onDone={clearSelection}
       />

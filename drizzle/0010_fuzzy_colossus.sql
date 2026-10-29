@@ -1,0 +1,2 @@
+ALTER TABLE "project_activities" ADD COLUMN "budget" numeric(12, 2);--> statement-breakpoint
+ALTER TABLE "project_activities" ADD CONSTRAINT "project_activities_budget" CHECK ("project_activities"."budget" is null or "project_activities"."budget" >= 0);

@@ -15,15 +15,17 @@ export function InvoiceRowActions({
   categoryIds,
   categories,
   projectOptions,
+  activitiesByProject,
   suppliers,
   open,
   onOpenChange,
 }: {
   invoice: SupplierInvoice
-  allocations: { id: string; percentage: number }[]
+  allocations: { id: string; percentage: number; activityId?: string | null }[]
   categoryIds?: string[]
   categories?: React.ComponentProps<typeof InvoiceDialog>["categories"]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: React.ComponentProps<typeof InvoiceDialog>["activitiesByProject"]
   suppliers: React.ComponentProps<typeof InvoiceDialog>["suppliers"]
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -36,6 +38,7 @@ export function InvoiceRowActions({
         categoryIds={categoryIds}
         categories={categories}
         projectOptions={projectOptions}
+        activitiesByProject={activitiesByProject}
         suppliers={suppliers}
         open={open}
         onOpenChange={onOpenChange}

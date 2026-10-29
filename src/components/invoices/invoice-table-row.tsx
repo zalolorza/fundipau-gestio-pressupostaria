@@ -13,15 +13,17 @@ export function InvoiceTableRow({
   categoryIds,
   categories,
   projectOptions,
+  activitiesByProject,
   suppliers,
   children,
   className,
 }: {
   invoice: SupplierInvoice
-  allocations: { id: string; percentage: number }[]
+  allocations: { id: string; percentage: number; activityId?: string | null }[]
   categoryIds?: string[]
   categories?: React.ComponentProps<typeof InvoiceRowActions>["categories"]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: React.ComponentProps<typeof InvoiceRowActions>["activitiesByProject"]
   suppliers: React.ComponentProps<typeof InvoiceRowActions>["suppliers"]
   children: React.ReactNode
   className?: string
@@ -37,6 +39,7 @@ export function InvoiceTableRow({
           categoryIds={categoryIds}
           categories={categories}
           projectOptions={projectOptions}
+          activitiesByProject={activitiesByProject}
           suppliers={suppliers}
           open={open}
           onOpenChange={setOpen}

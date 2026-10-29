@@ -19,20 +19,31 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { SupplierInvoice } from "@/db/schema"
 import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { formatDate, formatEuro, formatMonth, formatPct } from "@/lib/format"
-import { unassignInvoiceFromProject, unassignPayrollEntries } from "@/server/actions"
+import type { ActivityRef } from "@/components/projects/project-activities"
+import {
+  setInvoiceProjectActivity,
+  setPayrollEntryProjectActivity,
+  unassignInvoiceFromProject,
+  unassignPayrollEntries,
+} from "@/server/actions"
 import type { SupplierOption } from "@/server/queries"
+
+const ACTIVITY_NONE = "__none__"
 
 type Inv = SupplierInvoice & {
   cost: number
   percentage: number
   imputed: number
-  allocations: { id: string; percentage: number }[]
+  allocations: { id: string; percentage: number; activityId?: string | null }[]
   categories: { id: string; name: string }[]
   categoryIds: string[]
+  activityId: string | null
+  activityName: string | null
 }
 
 type CostTypeFilter = "all" | CostType
 type CategoryFilter = "all" | "none" | string
+type ActivityFilter = "all" | "none" | string
 
 function CostTypeFilterSelect({
   value,
@@ -82,6 +93,34 @@ function CategoryFilterSelect({
   )
 }
 
+function ActivityFilterSelect({
+  value,
+  onChange,
+  activities,
+}: {
+  value: ActivityFilter
+  onChange: (v: ActivityFilter) => void
+  activities: ActivityRef[]
+}) {
+  if (activities.length === 0) return null
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-48" aria-label="Activitat">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">Totes les activitats</SelectItem>
+        <SelectItem value="none">Sense activitat</SelectItem>
+        {activities.map((a) => (
+          <SelectItem key={a.id} value={a.id}>
+            {a.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function matchesCategory(
   categoryIds: string[],
   filter: CategoryFilter
@@ -91,31 +130,138 @@ function matchesCategory(
   return categoryIds.includes(filter)
 }
 
+function matchesActivity(
+  activityId: string | null | undefined,
+  filter: ActivityFilter
+): boolean {
+  if (filter === "all") return true
+  if (filter === "none") return !activityId
+  return activityId === filter
+}
+
+function ActivitySelect({
+  value,
+  activities,
+  disabled,
+  onChange,
+}: {
+  value: string | null
+  activities: ActivityRef[]
+  disabled?: boolean
+  onChange: (activityId: string | null) => void
+}) {
+  if (activities.length === 0) return null
+  return (
+    <Select
+      value={value ?? ACTIVITY_NONE}
+      disabled={disabled}
+      onValueChange={(v) => onChange(v === ACTIVITY_NONE ? null : v)}
+    >
+      <SelectTrigger
+        className="h-7 w-36 text-xs"
+        aria-label="Activitat"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <SelectValue placeholder="Sense activitat" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={ACTIVITY_NONE}>Sense activitat</SelectItem>
+        {activities.map((a) => (
+          <SelectItem key={a.id} value={a.id}>
+            {a.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+function InvoiceActivitySelect({
+  projectId,
+  invoiceId,
+  activityId,
+  activities,
+}: {
+  projectId: string
+  invoiceId: string
+  activityId: string | null
+  activities: ActivityRef[]
+}) {
+  const [pending, start] = useTransition()
+  return (
+    <ActivitySelect
+      value={activityId}
+      activities={activities}
+      disabled={pending}
+      onChange={(next) =>
+        start(async () => {
+          const res = await setInvoiceProjectActivity(projectId, invoiceId, next)
+          if (!res.ok) toast.error(res.error)
+        })
+      }
+    />
+  )
+}
+
+function PayrollActivitySelect({
+  projectId,
+  entryId,
+  activityId,
+  activities,
+}: {
+  projectId: string
+  entryId: string
+  activityId: string | null
+  activities: ActivityRef[]
+}) {
+  const [pending, start] = useTransition()
+  return (
+    <ActivitySelect
+      value={activityId}
+      activities={activities}
+      disabled={pending}
+      onChange={(next) =>
+        start(async () => {
+          const res = await setPayrollEntryProjectActivity(projectId, entryId, next)
+          if (!res.ok) toast.error(res.error)
+        })
+      }
+    />
+  )
+}
+
 export function AssignedInvoices({
   projectId,
   invoices,
   projectOptions,
+  activitiesByProject = {},
   suppliers,
   categories = [],
+  activities = [],
 }: {
   projectId: string
   invoices: Inv[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories?: { id: string; name: string }[]
+  activities?: ActivityRef[]
 }) {
   const [pending, start] = useTransition()
   const [editId, setEditId] = useState<string | null>(null)
   const [tipus, setTipus] = useState<CostTypeFilter>("all")
   const [categoria, setCategoria] = useState<CategoryFilter>("all")
+  const [activitat, setActivitat] = useState<ActivityFilter>("all")
   const filtered = useMemo(
     () =>
       invoices.filter(
         (i) =>
           (tipus === "all" || i.costType === tipus) &&
-          matchesCategory(i.categoryIds, categoria)
+          matchesCategory(i.categoryIds, categoria) &&
+          matchesActivity(i.activityId, activitat)
       ),
-    [invoices, tipus, categoria]
+    [invoices, tipus, categoria, activitat]
   )
 
   if (invoices.length === 0)
@@ -126,6 +272,7 @@ export function AssignedInvoices({
       <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
         <CostTypeFilterSelect value={tipus} onChange={setTipus} />
         <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
+        <ActivityFilterSelect value={activitat} onChange={setActivitat} activities={activities} />
       </div>
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">Cap factura amb aquest filtre.</p>
@@ -136,6 +283,7 @@ export function AssignedInvoices({
               <TableHead className="pl-4">Data</TableHead>
               <TableHead>Proveïdor · Número</TableHead>
               <TableHead>Tipus</TableHead>
+              {activities.length > 0 && <TableHead>Activitat</TableHead>}
               <TableHead>Descripció</TableHead>
               <TableHead className="text-right">Cost</TableHead>
               <TableHead className="text-right">%</TableHead>
@@ -152,6 +300,8 @@ export function AssignedInvoices({
                 allocations,
                 categories: cats,
                 categoryIds,
+                activityId: _aid,
+                activityName: _an,
                 ...invoice
               } = i
               return (
@@ -164,6 +314,7 @@ export function AssignedInvoices({
                       categoryIds={categoryIds}
                       categories={categories}
                       projectOptions={projectOptions}
+                      activitiesByProject={activitiesByProject}
                       suppliers={suppliers}
                       open={editId === i.id}
                       onOpenChange={(o) => setEditId(o ? i.id : null)}
@@ -186,6 +337,16 @@ export function AssignedInvoices({
                       ))}
                     </div>
                   </TableCell>
+                  {activities.length > 0 && (
+                    <TableCell>
+                      <InvoiceActivitySelect
+                        projectId={projectId}
+                        invoiceId={i.id}
+                        activityId={i.activityId}
+                        activities={activities}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="max-w-56 truncate text-muted-foreground">{i.description}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatEuro(i.cost)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatPct(i.percentage)}</TableCell>
@@ -230,6 +391,8 @@ type PersonGroup = {
     costType: CostType
     categories: { id: string; name: string }[]
     categoryIds: string[]
+    activityId: string | null
+    activityName: string | null
   }[]
 }
 
@@ -239,6 +402,7 @@ function editFromGroup(g: PersonGroup): PayrollAssignmentEdit {
   const types = [...new Set(g.entries.map((e) => e.costType))]
   const catKey = (ids: string[]) => [...ids].sort().join(",")
   const catSets = [...new Set(g.entries.map((e) => catKey(e.categoryIds)))]
+  const activityIds = [...new Set(g.entries.map((e) => e.activityId ?? ""))]
   return {
     payrollId: g.payrollId,
     from: months[0]!,
@@ -246,6 +410,7 @@ function editFromGroup(g: PersonGroup): PayrollAssignmentEdit {
     percentage: pcts.length === 1 ? pcts[0]! : g.entries[0]!.percentage,
     costType: types.length === 1 ? types[0]! : "direct",
     categoryIds: catSets.length === 1 ? g.entries[0]!.categoryIds : [],
+    activityId: activityIds.length === 1 ? g.entries[0]!.activityId : null,
     entryIdsByMonth: g.entries.map((e) => ({ entryId: e.entryId, month: e.month })),
   }
 }
@@ -255,6 +420,7 @@ export function AssignedPayroll({
   groups,
   payrolls,
   categories = [],
+  activities = [],
   defaultFrom,
   defaultTo,
 }: {
@@ -262,12 +428,14 @@ export function AssignedPayroll({
   groups: PersonGroup[]
   payrolls: PayrollOption[]
   categories?: { id: string; name: string }[]
+  activities?: ActivityRef[]
   defaultFrom?: string | null
   defaultTo?: string | null
 }) {
   const [pending, start] = useTransition()
   const [tipus, setTipus] = useState<CostTypeFilter>("all")
   const [categoria, setCategoria] = useState<CategoryFilter>("all")
+  const [activitat, setActivitat] = useState<ActivityFilter>("all")
   const [edit, setEdit] = useState<PayrollAssignmentEdit | null>(null)
 
   const filtered = useMemo(() => {
@@ -276,7 +444,8 @@ export function AssignedPayroll({
         const entries = g.entries.filter(
           (e) =>
             (tipus === "all" || e.costType === tipus) &&
-            matchesCategory(e.categoryIds, categoria)
+            matchesCategory(e.categoryIds, categoria) &&
+            matchesActivity(e.activityId, activitat)
         )
         if (!entries.length) return null
         return {
@@ -286,7 +455,7 @@ export function AssignedPayroll({
         }
       })
       .filter((g): g is PersonGroup => g != null)
-  }, [groups, tipus, categoria])
+  }, [groups, tipus, categoria, activitat])
 
   if (groups.length === 0)
     return <p className="py-8 text-center text-sm text-muted-foreground">Cap nòmina assignada.</p>
@@ -302,11 +471,13 @@ export function AssignedPayroll({
       <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
         <CostTypeFilterSelect value={tipus} onChange={setTipus} />
         <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
+        <ActivityFilterSelect value={activitat} onChange={setActivitat} activities={activities} />
       </div>
       <AssignPayrollDialog
         projectId={projectId}
         payrolls={payrolls}
         categories={categories}
+        activities={activities}
         defaultFrom={defaultFrom}
         defaultTo={defaultTo}
         edit={edit}
@@ -328,6 +499,9 @@ export function AssignedPayroll({
                 g.entries.flatMap((e) => e.categories).map((c) => [c.id, c.name] as const)
               ).values(),
             ]
+            const activityNames = [
+              ...new Set(g.entries.map((e) => e.activityName).filter(Boolean) as string[]),
+            ]
             return (
               <details key={g.payrollId} className="group">
                 <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -345,6 +519,11 @@ export function AssignedPayroll({
                   {types.map((t) => (
                     <Badge key={t} variant={t === "indirect" ? "outline" : "secondary"}>
                       {COST_TYPE_LABELS[t]}
+                    </Badge>
+                  ))}
+                  {activityNames.map((name) => (
+                    <Badge key={name} variant="outline" className="font-normal">
+                      {name}
                     </Badge>
                   ))}
                   {catNames.map((name) => (
@@ -386,6 +565,7 @@ export function AssignedPayroll({
                       <TableRow>
                         <TableHead className="pl-12">Mes</TableHead>
                         <TableHead>Tipus</TableHead>
+                        {activities.length > 0 && <TableHead>Activitat</TableHead>}
                         <TableHead className="text-right">Nòmina</TableHead>
                         <TableHead className="text-right">%</TableHead>
                         <TableHead className="text-right">Imputat</TableHead>
@@ -404,6 +584,7 @@ export function AssignedPayroll({
                               percentage: e.percentage,
                               costType: e.costType,
                               categoryIds: e.categoryIds,
+                              activityId: e.activityId,
                               entryIdsByMonth: [{ entryId: e.entryId, month: e.month }],
                             })
                           }
@@ -421,6 +602,16 @@ export function AssignedPayroll({
                               ))}
                             </div>
                           </TableCell>
+                          {activities.length > 0 && (
+                            <TableCell>
+                              <PayrollActivitySelect
+                                projectId={projectId}
+                                entryId={e.entryId}
+                                activityId={e.activityId}
+                                activities={activities}
+                              />
+                            </TableCell>
+                          )}
                           <TableCell className="text-right tabular-nums">{formatEuro(e.amount)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatPct(e.percentage)}</TableCell>
                           <TableCell className="text-right tabular-nums">{formatEuro(e.imputed)}</TableCell>

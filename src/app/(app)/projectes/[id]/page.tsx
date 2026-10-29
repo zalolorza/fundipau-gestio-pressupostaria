@@ -6,12 +6,13 @@ import { notFound } from "next/navigation";
 import { BudgetProgress } from "@/components/app/budget-progress";
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header";
 import { AssignPayrollDialog } from "@/components/projects/assign-payroll-dialog";
-import { ProjectInvoiceMenu } from "@/components/projects/project-invoice-menu";
 import {
   AssignedInvoices,
   AssignedPayroll,
 } from "@/components/projects/assigned-resources";
 import { ProjectActions } from "@/components/projects/project-actions";
+import { ProjectActivities } from "@/components/projects/project-activities";
+import { ProjectInvoiceMenu } from "@/components/projects/project-invoice-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ import { COST_TYPE_LABELS } from "@/lib/cost-type";
 import { formatDate, formatEuro, formatPct, round2 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
+  activitiesByProjectMap,
   getAssignableInvoices,
   getClientOptions,
   getPayrollOptions,
@@ -44,6 +46,7 @@ import {
   getProjectOptions,
   getSupplierOptions,
   listCategories,
+  listProjectActivities,
   type CategoryTotal,
   type ProjectCosts,
 } from "@/server/queries";
@@ -70,6 +73,7 @@ export default async function ProjectPage({
     projects,
     suppliers,
     categories,
+    allActivities,
     defaultVatDeductibleRate,
   ] = await Promise.all([
     getProject(id),
@@ -79,6 +83,7 @@ export default async function ProjectPage({
     getProjectOptions(),
     getSupplierOptions(),
     listCategories(),
+    listProjectActivities(),
     getDefaultVatDeductibleRate(),
   ]);
   if (!project) notFound();
@@ -98,10 +103,23 @@ export default async function ProjectPage({
     project.invoices.map((i) => [i.id, i.percentage]),
   );
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
+  const activityOptions = project.activities.map((a) => ({
+    id: a.id,
+    name: a.name,
+  }));
+  const activitiesWithBudget = project.activities.map((a) => ({
+    id: a.id,
+    name: a.name,
+    budget: a.budget,
+    spent: a.spent,
+    progress: a.progress,
+  }));
+  const activitiesByProject = activitiesByProjectMap(allActivities);
   const {
     clients: _c,
     invoices: _i,
     payroll: _p,
+    activities: _a,
     costs: _co,
     categoryTotals: _ct,
     progress: _pr,
@@ -204,36 +222,54 @@ export default async function ProjectPage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Clients</CardTitle>
-              <CardDescription>Repartiment del finançament</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {project.clients.length === 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Encara no hi ha cap client assignat.
-                </p>
-              )}
-              {project.clients.map((c) => (
-                <div key={c.id} className="space-y-1">
-                  <div className="flex items-center justify-between gap-2 text-sm">
-                    <Link
-                      href={`/clients/${c.id}`}
-                      className="truncate hover:text-primary hover:underline"
-                    >
-                      {c.name}
-                    </Link>
-                    <Badge variant="secondary">{formatPct(c.percentage)}</Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground tabular-nums">
-                    {formatEuro((project.costs.total * c.percentage) / 100)}{" "}
-                    imputats
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Clients</CardTitle>
+                <CardDescription>Repartiment del finançament</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {project.clients.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Encara no hi ha cap client assignat.
                   </p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+                )}
+                {project.clients.map((c) => (
+                  <div key={c.id} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <Link
+                        href={`/clients/${c.id}`}
+                        className="truncate hover:text-primary hover:underline"
+                      >
+                        {c.name}
+                      </Link>
+                      <Badge variant="secondary">{formatPct(c.percentage)}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {formatEuro((project.costs.total * c.percentage) / 100)}{" "}
+                      imputats
+                    </p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Activitats</CardTitle>
+                <CardDescription>
+                  Classificació opcional; amb pressupost es mostra el progrés
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ProjectActivities
+                  projectId={project.id}
+                  maxBudget={project.maxBudget}
+                  activities={activitiesWithBudget}
+                />
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         <Card className="pb-0">
@@ -249,14 +285,17 @@ export default async function ProjectPage({
                   invoices={invoices}
                   current={current}
                   projectOptions={projectOptions}
+                  activitiesByProject={activitiesByProject}
                   suppliers={suppliers}
                   categories={categoryOptions}
+                  activities={activityOptions}
                   defaultVatDeductibleRate={defaultVatDeductibleRate}
                 />
                 <AssignPayrollDialog
                   projectId={project.id}
                   payrolls={payrolls}
                   categories={categoryOptions}
+                  activities={activityOptions}
                   defaultFrom={project.openedAt}
                   defaultTo={project.closedAt}
                 >
@@ -281,8 +320,10 @@ export default async function ProjectPage({
                 projectId={project.id}
                 invoices={project.invoices}
                 projectOptions={projectOptions}
+                activitiesByProject={activitiesByProject}
                 suppliers={suppliers}
                 categories={categoryOptions}
+                activities={activityOptions}
               />
             </TabsContent>
             <TabsContent value="nomines">
@@ -291,6 +332,7 @@ export default async function ProjectPage({
                 groups={project.payroll}
                 payrolls={payrolls}
                 categories={categoryOptions}
+                activities={activityOptions}
                 defaultFrom={project.openedAt}
                 defaultTo={project.closedAt}
               />

@@ -13,6 +13,7 @@ import {
   payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
+  projectActivities,
   projectClients,
   projects,
   supplierInvoices,
@@ -128,6 +129,33 @@ export async function getProjectOptions() {
     .select({ id: projects.id, name: projects.name, closedAt: projects.closedAt })
     .from(projects)
     .orderBy(asc(projects.name))
+}
+
+/** Activitats de tots els projectes (per formularis d'assignació). */
+export async function listProjectActivities() {
+  return db
+    .select({
+      id: projectActivities.id,
+      projectId: projectActivities.projectId,
+      name: projectActivities.name,
+    })
+    .from(projectActivities)
+    .orderBy(asc(projectActivities.sortOrder), asc(projectActivities.name))
+}
+
+export type ProjectActivityOption = Awaited<ReturnType<typeof listProjectActivities>>[number]
+
+/** Agrupa activitats per projecte per passar-les a l'editor d'assignacions. */
+export function activitiesByProjectMap(
+  rows: { id: string; projectId: string; name: string }[]
+): Record<string, { id: string; name: string }[]> {
+  const map: Record<string, { id: string; name: string }[]> = {}
+  for (const a of rows) {
+    const list = map[a.projectId] ?? []
+    list.push({ id: a.id, name: a.name })
+    map[a.projectId] = list
+  }
+  return map
 }
 
 export async function getClientOptions() {
@@ -364,11 +392,12 @@ export async function getProject(id: string) {
   })
   if (!project) return null
 
-  const [invoiceRows, payrollRows, costs, categoryTotalsMap] = await Promise.all([
+  const [invoiceRows, payrollRows, costs, categoryTotalsMap, activities] = await Promise.all([
     db
       .select({
         invoice: supplierInvoices,
         percentage: invoiceProjects.percentage,
+        activityId: invoiceProjects.activityId,
       })
       .from(invoiceProjects)
       .innerJoin(supplierInvoices, eq(supplierInvoices.id, invoiceProjects.invoiceId))
@@ -384,6 +413,7 @@ export async function getProject(id: string) {
         role: payrolls.role,
         percentage: payrollEntryProjects.percentage,
         costType: payrollEntryProjects.costType,
+        activityId: payrollEntryProjects.activityId,
       })
       .from(payrollEntryProjects)
       .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
@@ -392,6 +422,16 @@ export async function getProject(id: string) {
       .orderBy(desc(payrollEntries.month), asc(payrolls.personName)),
     costsByProject([id]),
     categoryTotalsByProject([id]),
+    db
+      .select({
+        id: projectActivities.id,
+        name: projectActivities.name,
+        budget: projectActivities.budget,
+        sortOrder: projectActivities.sortOrder,
+      })
+      .from(projectActivities)
+      .where(eq(projectActivities.projectId, id))
+      .orderBy(asc(projectActivities.sortOrder), asc(projectActivities.name)),
   ])
 
   const invoiceIds = invoiceRows.map((r) => r.invoice.id)
@@ -399,12 +439,20 @@ export async function getProject(id: string) {
 
   const [allAllocations, invoiceCats, payrollCats] = await Promise.all([
     invoiceIds.length === 0
-      ? Promise.resolve([] as { invoiceId: string; projectId: string; percentage: number }[])
+      ? Promise.resolve(
+          [] as {
+            invoiceId: string
+            projectId: string
+            percentage: number
+            activityId: string | null
+          }[]
+        )
       : db
           .select({
             invoiceId: invoiceProjects.invoiceId,
             projectId: invoiceProjects.projectId,
             percentage: invoiceProjects.percentage,
+            activityId: invoiceProjects.activityId,
           })
           .from(invoiceProjects)
           .where(inArray(invoiceProjects.invoiceId, invoiceIds)),
@@ -445,10 +493,13 @@ export async function getProject(id: string) {
           ),
   ])
 
-  const allocationsByInvoice = new Map<string, { id: string; percentage: number }[]>()
+  const allocationsByInvoice = new Map<
+    string,
+    { id: string; percentage: number; activityId: string | null }[]
+  >()
   for (const a of allAllocations) {
     const list = allocationsByInvoice.get(a.invoiceId) ?? []
-    list.push({ id: a.projectId, percentage: a.percentage })
+    list.push({ id: a.projectId, percentage: a.percentage, activityId: a.activityId })
     allocationsByInvoice.set(a.invoiceId, list)
   }
 
@@ -467,19 +518,29 @@ export async function getProject(id: string) {
     catsByEntry.set(key, list)
   }
 
+  const activityById = new Map(activities.map((a) => [a.id, a.name]))
+  const spentByActivity = new Map<string, number>()
+
   const invoices = invoiceRows.map((r) => {
     const cost = invoiceCost(r.invoice)
     const categories = (catsByInvoice.get(r.invoice.id) ?? []).sort((a, b) =>
       a.name.localeCompare(b.name)
     )
+    const imputed = round2((cost * r.percentage) / 100)
+    const activityName = r.activityId ? (activityById.get(r.activityId) ?? null) : null
+    if (r.activityId) {
+      spentByActivity.set(r.activityId, round2((spentByActivity.get(r.activityId) ?? 0) + imputed))
+    }
     return {
       ...r.invoice,
       cost,
       percentage: r.percentage,
-      imputed: round2((cost * r.percentage) / 100),
+      imputed,
       allocations: allocationsByInvoice.get(r.invoice.id) ?? [],
       categories,
       categoryIds: categories.map((c) => c.id),
+      activityId: r.activityId,
+      activityName,
     }
   })
 
@@ -500,6 +561,8 @@ export async function getProject(id: string) {
         costType: CostType
         categories: { id: string; name: string }[]
         categoryIds: string[]
+        activityId: string | null
+        activityName: string | null
       }[]
     }
   >()
@@ -517,6 +580,9 @@ export async function getProject(id: string) {
     const categories = (catsByEntry.get(`${r.entryId}:${id}`) ?? []).sort((a, b) =>
       a.name.localeCompare(b.name)
     )
+    if (r.activityId) {
+      spentByActivity.set(r.activityId, round2((spentByActivity.get(r.activityId) ?? 0) + imputed))
+    }
     g.entries.push({
       entryId: r.entryId,
       month: r.month,
@@ -526,6 +592,8 @@ export async function getProject(id: string) {
       costType: r.costType,
       categories,
       categoryIds: categories.map((c) => c.id),
+      activityId: r.activityId,
+      activityName: r.activityId ? (activityById.get(r.activityId) ?? null) : null,
     })
     g.total = round2(g.total + imputed)
   }
@@ -534,6 +602,12 @@ export async function getProject(id: string) {
   return {
     ...project,
     clients: project.clients.map((pc) => ({ ...pc.client, percentage: pc.percentage })),
+    activities: activities.map((a) => {
+      const spent = spentByActivity.get(a.id) ?? 0
+      const progress =
+        a.budget != null && a.budget > 0 ? round2((spent / a.budget) * 100) : 0
+      return { ...a, spent, progress }
+    }),
     invoices,
     payroll: [...byPerson.values()],
     costs: c,
@@ -845,6 +919,7 @@ export async function listInvoices(filters: {
         projectId: p.projectId,
         name: p.project.name,
         percentage: p.percentage,
+        activityId: p.activityId,
       })),
       categories,
       categoryIds: categories.map((c) => c.id),
@@ -981,6 +1056,7 @@ export async function getPayroll(id: string) {
           name: a.project.name,
           percentage: a.percentage,
           costType: a.costType,
+          activityId: a.activityId,
           categories,
           categoryIds: categories.map((c) => c.id),
         }

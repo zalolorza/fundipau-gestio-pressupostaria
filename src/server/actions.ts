@@ -16,6 +16,7 @@ import {
   payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
+  projectActivities,
   projectClients,
   projects,
   supplierInvoices,
@@ -55,17 +56,54 @@ const pct = z.coerce.number().gt(0, "El percentatge ha de ser més gran que 0").
 
 const costTypeSchema = z.enum(["direct", "indirect"])
 const categoryIdsSchema = z.array(z.string().uuid()).default([])
-const allocationSchema = z.array(z.object({ id: z.string().uuid(), percentage: pct }))
-/** Assignació a projecte amb tipus de cost i categories (nòmines). */
+const optionalActivityId = z.string().uuid().nullable().optional()
+const allocationSchema = z.array(
+  z.object({
+    id: z.string().uuid(),
+    percentage: pct,
+    activityId: optionalActivityId,
+  })
+)
+/** Assignació a projecte amb tipus de cost, categories i activitat (nòmines). */
 const payrollAllocationSchema = z.array(
   z.object({
     id: z.string().uuid(),
     percentage: pct,
     costType: costTypeSchema.default("direct"),
     categoryIds: categoryIdsSchema,
+    activityId: optionalActivityId,
   })
 )
 type Allocation = z.infer<typeof allocationSchema>
+type PayrollAllocation = z.infer<typeof payrollAllocationSchema>[number]
+
+/** Valida que l'activitat (si n'hi ha) pertanyi al projecte. */
+async function resolveActivityId(
+  projectId: string,
+  activityId: string | null | undefined
+): Promise<string | null | undefined> {
+  if (activityId === undefined) return undefined
+  if (activityId === null) return null
+  const row = await db.query.projectActivities.findFirst({
+    where: and(eq(projectActivities.id, activityId), eq(projectActivities.projectId, projectId)),
+    columns: { id: true },
+  })
+  if (!row) throw new Error("L'activitat no pertany a aquest projecte")
+  return row.id
+}
+
+/** Resol l'activitat de cada assignació de nòmina (null si no n'hi ha). */
+async function resolvePayrollAllocationActivities(list: PayrollAllocation[]) {
+  return Promise.all(
+    list.map(async (a) => ({
+      projectId: a.id,
+      percentage: a.percentage,
+      costType: a.costType,
+      categoryIds: a.categoryIds,
+      activityId: ((await resolveActivityId(a.id, a.activityId ?? null)) ?? null) as string | null,
+    }))
+  )
+}
 
 function uniqueIds(ids: string[]) {
   return [...new Set(ids)]
@@ -208,6 +246,7 @@ export async function saveProject(
   await requireSession()
   try {
     const data = projectSchema.parse(input)
+    if (id) await assertActivityBudgetsFit(id, data.maxBudget)
     let projectId = id
     if (id) await db.update(projects).set(data).where(eq(projects.id, id))
     else [{ id: projectId }] = await db.insert(projects).values(data).returning({ id: projects.id })
@@ -262,11 +301,13 @@ export async function setProjectClients(
 export async function assignInvoiceToProject(
   projectId: string,
   invoiceId: string,
-  percentage: number
+  percentage: number,
+  activityId?: string | null
 ): Promise<ActionResult> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
+    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId))
     const [{ other }] = await db
       .select({ other: sql<string>`coalesce(sum(${invoiceProjects.percentage}), 0)` })
       .from(invoiceProjects)
@@ -274,13 +315,45 @@ export async function assignInvoiceToProject(
     const available = round2(100 - Number(other))
     if (p > available)
       throw new Error(`Aquesta factura només té un ${available} % disponible per assignar`)
+    const values = {
+      invoiceId,
+      projectId,
+      percentage: p,
+      ...(activity !== undefined ? { activityId: activity } : {}),
+    }
     await db
       .insert(invoiceProjects)
-      .values({ invoiceId, projectId, percentage: p })
+      .values(values)
       .onConflictDoUpdate({
         target: [invoiceProjects.invoiceId, invoiceProjects.projectId],
-        set: { percentage: p },
+        set: {
+          percentage: p,
+          ...(activity !== undefined ? { activityId: activity } : {}),
+        },
       })
+    revalidatePath(`/projectes/${projectId}`)
+    revalidatePath("/factures")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/** Canvia (o treu) l'activitat d'una factura ja assignada al projecte. */
+export async function setInvoiceProjectActivity(
+  projectId: string,
+  invoiceId: string,
+  activityId: string | null
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)
+    const updated = await db
+      .update(invoiceProjects)
+      .set({ activityId: activity ?? null })
+      .where(and(eq(invoiceProjects.projectId, projectId), eq(invoiceProjects.invoiceId, invoiceId)))
+      .returning({ invoiceId: invoiceProjects.invoiceId })
+    if (!updated.length) throw new Error("La factura no està assignada a aquest projecte")
     revalidatePath(`/projectes/${projectId}`)
     revalidatePath("/factures")
     return { ok: true }
@@ -312,13 +385,15 @@ export async function assignPayrollToProject(
   toMonthValue: string,
   percentage: number,
   costType: CostType = "direct",
-  categoryIds: string[] = []
+  categoryIds: string[] = [],
+  activityId?: string | null
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
     const kind = costTypeSchema.parse(costType)
     const cats = categoryIdsSchema.parse(categoryIds)
+    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId))
     const months = monthRange(fromMonth, toMonthValue)
     if (!months.length) throw new Error("El rang de mesos no és vàlid")
 
@@ -392,10 +467,22 @@ export async function assignPayrollToProject(
 
     await db
       .insert(payrollEntryProjects)
-      .values(entries.map((e) => ({ entryId: e.id, projectId, percentage: p, costType: kind })))
+      .values(
+        entries.map((e) => ({
+          entryId: e.id,
+          projectId,
+          percentage: p,
+          costType: kind,
+          ...(activity !== undefined ? { activityId: activity } : {}),
+        }))
+      )
       .onConflictDoUpdate({
         target: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
-        set: { percentage: p, costType: kind },
+        set: {
+          percentage: p,
+          costType: kind,
+          ...(activity !== undefined ? { activityId: activity } : {}),
+        },
       })
     await replacePayrollAllocationCategories(
       entries.map((e) => ({ entryId: e.id, projectId, categoryIds: cats }))
@@ -418,6 +505,31 @@ export async function unassignPayrollEntries(projectId: string, entryIds: string
   revalidatePath(`/projectes/${projectId}`)
   revalidatePath("/nomines", "layout")
   return { ok: true }
+}
+
+/** Canvia (o treu) l'activitat d'una partida de nòmina ja assignada al projecte. */
+export async function setPayrollEntryProjectActivity(
+  projectId: string,
+  entryId: string,
+  activityId: string | null
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)
+    const updated = await db
+      .update(payrollEntryProjects)
+      .set({ activityId: activity ?? null })
+      .where(
+        and(eq(payrollEntryProjects.projectId, projectId), eq(payrollEntryProjects.entryId, entryId))
+      )
+      .returning({ entryId: payrollEntryProjects.entryId })
+    if (!updated.length) throw new Error("La partida no està assignada a aquest projecte")
+    revalidatePath(`/projectes/${projectId}`)
+    revalidatePath("/nomines", "layout")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
 }
 
 /* ------------------------------- Proveïdors ------------------------------ */
@@ -508,7 +620,7 @@ export type InvoiceInput = z.input<typeof invoiceSchema>
 export async function saveInvoice(
   id: string | null,
   input: InvoiceInput,
-  allocations: { id: string; percentage: number }[],
+  allocations: { id: string; percentage: number; activityId?: string | null }[],
   options?: { createSupplier?: boolean; categoryIds?: string[] }
 ): Promise<ActionResult<{ id: string; supplierId: string | null }>> {
   await requireSession()
@@ -518,6 +630,16 @@ export async function saveInvoice(
     const list = allocationSchema.parse(allocations)
     checkAllocations(list, "max")
     const categoryIds = categoryIdsSchema.parse(options?.categoryIds ?? [])
+    const resolvedActivities = await Promise.all(
+      list.map(async (a) => ({
+        projectId: a.id,
+        percentage: a.percentage,
+        activityId:
+          a.activityId === undefined
+            ? undefined
+            : ((await resolveActivityId(a.id, a.activityId)) ?? null),
+      }))
+    )
 
     // Crear el proveïdor a partir de les dades de la factura, si es demana
     if (!data.supplierId && options?.createSupplier) {
@@ -555,13 +677,33 @@ export async function saveInvoice(
     if (id) await db.update(supplierInvoices).set(values).where(eq(supplierInvoices.id, id))
     else [{ id: invoiceId }] = await db.insert(supplierInvoices).values(values).returning({ id: supplierInvoices.id })
 
+    const prevAlloc =
+      id != null
+        ? await db
+            .select({
+              projectId: invoiceProjects.projectId,
+              activityId: invoiceProjects.activityId,
+            })
+            .from(invoiceProjects)
+            .where(eq(invoiceProjects.invoiceId, id))
+        : []
+    const prevActivityByProject = new Map(prevAlloc.map((a) => [a.projectId, a.activityId]))
+
     const clearAlloc = db.delete(invoiceProjects).where(eq(invoiceProjects.invoiceId, invoiceId!))
-    if (list.length)
+    if (resolvedActivities.length)
       await db.batch([
         clearAlloc,
-        db
-          .insert(invoiceProjects)
-          .values(list.map((a) => ({ invoiceId: invoiceId!, projectId: a.id, percentage: a.percentage }))),
+        db.insert(invoiceProjects).values(
+          resolvedActivities.map((a) => ({
+            invoiceId: invoiceId!,
+            projectId: a.projectId,
+            percentage: a.percentage,
+            activityId:
+              a.activityId !== undefined
+                ? a.activityId
+                : (prevActivityByProject.get(a.projectId) ?? null),
+          }))
+        ),
       ])
     else await clearAlloc
 
@@ -713,16 +855,41 @@ export async function bulkUpdateInvoices(
     }
 
     if (data.allocations) {
+      const prevAlloc = await db
+        .select({
+          invoiceId: invoiceProjects.invoiceId,
+          projectId: invoiceProjects.projectId,
+          activityId: invoiceProjects.activityId,
+        })
+        .from(invoiceProjects)
+        .where(inArray(invoiceProjects.invoiceId, invoiceIds))
+      const prevActivity = new Map(
+        prevAlloc.map((a) => [`${a.invoiceId}:${a.projectId}`, a.activityId] as const)
+      )
+      const resolved = await Promise.all(
+        data.allocations.map(async (a) => ({
+          projectId: a.id,
+          percentage: a.percentage,
+          activityId:
+            a.activityId === undefined
+              ? undefined
+              : ((await resolveActivityId(a.id, a.activityId)) ?? null),
+        }))
+      )
       const clear = db.delete(invoiceProjects).where(inArray(invoiceProjects.invoiceId, invoiceIds))
-      if (data.allocations.length) {
+      if (resolved.length) {
         await db.batch([
           clear,
           db.insert(invoiceProjects).values(
             invoiceIds.flatMap((invoiceId) =>
-              data.allocations!.map((a) => ({
+              resolved.map((a) => ({
                 invoiceId,
-                projectId: a.id,
+                projectId: a.projectId,
                 percentage: a.percentage,
+                activityId:
+                  a.activityId !== undefined
+                    ? a.activityId
+                    : (prevActivity.get(`${invoiceId}:${a.projectId}`) ?? null),
               }))
             )
           ),
@@ -788,13 +955,22 @@ export type PayrollInput = z.input<typeof payrollSchema>
 
 export async function createPayroll(
   input: PayrollInput,
-  allocations: { id: string; percentage: number; costType?: CostType; categoryIds?: string[] }[]
+  allocations: {
+    id: string
+    percentage: number
+    costType?: CostType
+    categoryIds?: string[]
+    activityId?: string | null
+  }[]
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
     const data = payrollSchema.parse(input)
-    const list = payrollAllocationSchema.parse(allocations)
-    checkAllocations(list, "max")
+    const list = await resolvePayrollAllocationActivities(payrollAllocationSchema.parse(allocations))
+    checkAllocations(
+      list.map((a) => ({ id: a.projectId, percentage: a.percentage })),
+      "max"
+    )
     const [{ id }] = await db.insert(payrolls).values(data).returning({ id: payrolls.id })
 
     // Generem els registres mensuals: fins al mes final o fins a desembre de l'any d'inici/actual
@@ -811,15 +987,16 @@ export async function createPayroll(
           entries.flatMap((e) =>
             list.map((a) => ({
               entryId: e.id,
-              projectId: a.id,
+              projectId: a.projectId,
               percentage: a.percentage,
               costType: a.costType,
+              activityId: a.activityId,
             }))
           )
         )
       await replacePayrollAllocationCategories(
         entries.flatMap((e) =>
-          list.map((a) => ({ entryId: e.id, projectId: a.id, categoryIds: a.categoryIds }))
+          list.map((a) => ({ entryId: e.id, projectId: a.projectId, categoryIds: a.categoryIds }))
         )
       )
     }
@@ -912,12 +1089,21 @@ export async function setPayrollEntryProjects(
   payrollId: string,
   referenceMonth: string,
   scope: ChangeScope,
-  input: { id: string; percentage: number; costType?: CostType; categoryIds?: string[] }[]
+  input: {
+    id: string
+    percentage: number
+    costType?: CostType
+    categoryIds?: string[]
+    activityId?: string | null
+  }[]
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
-    const list = payrollAllocationSchema.parse(input)
-    checkAllocations(list, "max")
+    const list = await resolvePayrollAllocationActivities(payrollAllocationSchema.parse(input))
+    checkAllocations(
+      list.map((a) => ({ id: a.projectId, percentage: a.percentage })),
+      "max"
+    )
     const ref = toMonth(referenceMonth)
     const where =
       scope === "current"
@@ -937,16 +1123,17 @@ export async function setPayrollEntryProjects(
           ids.flatMap((entryId) =>
             list.map((a) => ({
               entryId,
-              projectId: a.id,
+              projectId: a.projectId,
               percentage: a.percentage,
               costType: a.costType,
+              activityId: a.activityId,
             }))
           )
         ),
       ])
       await replacePayrollAllocationCategories(
         ids.flatMap((entryId) =>
-          list.map((a) => ({ entryId, projectId: a.id, categoryIds: a.categoryIds }))
+          list.map((a) => ({ entryId, projectId: a.projectId, categoryIds: a.categoryIds }))
         )
       )
     } else await del
@@ -995,6 +1182,7 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
               projectId: a.projectId,
               percentage: a.percentage,
               costType: a.costType,
+              activityId: a.activityId,
             }))
           )
         )
@@ -1064,28 +1252,30 @@ export async function bulkUpdatePayrollEntries(
     }
 
     if (data.allocations) {
+      const list = await resolvePayrollAllocationActivities(data.allocations)
       const clear = db
         .delete(payrollEntryProjects)
         .where(inArray(payrollEntryProjects.entryId, ownedIds))
-      if (data.allocations.length) {
+      if (list.length) {
         await db.batch([
           clear,
           db.insert(payrollEntryProjects).values(
             ownedIds.flatMap((entryId) =>
-              data.allocations!.map((a) => ({
+              list.map((a) => ({
                 entryId,
-                projectId: a.id,
+                projectId: a.projectId,
                 percentage: a.percentage,
                 costType: a.costType,
+                activityId: a.activityId,
               }))
             )
           ),
         ])
         await replacePayrollAllocationCategories(
           ownedIds.flatMap((entryId) =>
-            data.allocations!.map((a) => ({
+            list.map((a) => ({
               entryId,
-              projectId: a.id,
+              projectId: a.projectId,
               categoryIds: a.categoryIds,
             }))
           )
@@ -1138,6 +1328,14 @@ export async function deletePayroll(id: string) {
 
 const categoryNameSchema = z.string().trim().min(1, "El nom és obligatori").max(80, "Màxim 80 caràcters")
 
+function revalidateCategories() {
+  revalidatePath("/ajustos")
+  revalidatePath("/factures")
+  revalidatePath("/projectes", "layout")
+  revalidatePath("/nomines", "layout")
+  revalidatePath("/")
+}
+
 /** Crea una categoria des del picker (desplegable). */
 export async function createCategory(name: string): Promise<ActionResult<{ id: string; name: string }>> {
   await requireSession()
@@ -1150,13 +1348,189 @@ export async function createCategory(name: string): Promise<ActionResult<{ id: s
       .insert(costCategories)
       .values({ name: n, sortOrder: (max?.n ?? 0) + 1 })
       .returning({ id: costCategories.id, name: costCategories.name })
-    revalidatePath("/factures")
-    revalidatePath("/projectes", "layout")
-    revalidatePath("/nomines", "layout")
+    revalidateCategories()
     return { ok: true, data: row }
   } catch (e) {
     if (e && typeof e === "object" && "code" in e && e.code === "23505")
       return { ok: false, error: "Ja existeix una categoria amb aquest nom" }
+    return fail(e)
+  }
+}
+
+export async function renameCategory(
+  categoryId: string,
+  name: string
+): Promise<ActionResult<{ id: string; name: string }>> {
+  await requireSession()
+  try {
+    const n = categoryNameSchema.parse(name)
+    const [row] = await db
+      .update(costCategories)
+      .set({ name: n })
+      .where(eq(costCategories.id, categoryId))
+      .returning({ id: costCategories.id, name: costCategories.name })
+    if (!row) throw new Error("Categoria no trobada")
+    revalidateCategories()
+    return { ok: true, data: row }
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && e.code === "23505")
+      return { ok: false, error: "Ja existeix una categoria amb aquest nom" }
+    return fail(e)
+  }
+}
+
+export async function deleteCategory(categoryId: string): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const deleted = await db
+      .delete(costCategories)
+      .where(eq(costCategories.id, categoryId))
+      .returning({ id: costCategories.id })
+    if (!deleted.length) throw new Error("Categoria no trobada")
+    revalidateCategories()
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/* ------------------------------ Activitats ------------------------------- */
+
+const activityNameSchema = z
+  .string()
+  .trim()
+  .min(1, "El nom és obligatori")
+  .max(80, "Màxim 80 caràcters")
+
+const activityInputSchema = z.object({
+  name: activityNameSchema,
+  budget: optMoney,
+})
+export type ProjectActivityInput = z.input<typeof activityInputSchema>
+
+/** La suma de pressupostos d'activitats no pot superar el del projecte. */
+async function assertActivityBudgetsFit(
+  projectId: string,
+  maxBudget: number,
+  opts?: { excludeActivityId?: string; nextBudget?: number | null }
+) {
+  const [{ sum }] = await db
+    .select({
+      sum: sql<string>`coalesce(sum(${projectActivities.budget}), 0)`,
+    })
+    .from(projectActivities)
+    .where(
+      and(
+        eq(projectActivities.projectId, projectId),
+        opts?.excludeActivityId
+          ? ne(projectActivities.id, opts.excludeActivityId)
+          : undefined
+      )
+    )
+  const others = Number(sum)
+  const next = opts?.nextBudget ?? 0
+  const total = round2(others + (next ?? 0))
+  if (total > round2(maxBudget)) {
+    const available = round2(Math.max(0, maxBudget - others))
+    throw new Error(
+      available > 0
+        ? `El pressupost de les activitats no pot superar el del projecte (queden ${available} € disponibles)`
+        : "El pressupost de les activitats ja cobreix tot el pressupost del projecte"
+    )
+  }
+}
+
+export async function createProjectActivity(
+  projectId: string,
+  input: ProjectActivityInput
+): Promise<ActionResult<{ id: string; name: string; budget: number | null }>> {
+  await requireSession()
+  try {
+    const data = activityInputSchema.parse(input)
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+      columns: { id: true, maxBudget: true },
+    })
+    if (!project) throw new Error("Projecte no trobat")
+    if (data.budget != null)
+      await assertActivityBudgetsFit(projectId, project.maxBudget, { nextBudget: data.budget })
+    const [max] = await db
+      .select({ n: sql<number>`coalesce(max(${projectActivities.sortOrder}), 0)::int` })
+      .from(projectActivities)
+      .where(eq(projectActivities.projectId, projectId))
+    const [row] = await db
+      .insert(projectActivities)
+      .values({
+        projectId,
+        name: data.name,
+        budget: data.budget,
+        sortOrder: (max?.n ?? 0) + 1,
+      })
+      .returning({
+        id: projectActivities.id,
+        name: projectActivities.name,
+        budget: projectActivities.budget,
+      })
+    revalidatePath(`/projectes/${projectId}`)
+    return { ok: true, data: row }
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && e.code === "23505")
+      return { ok: false, error: "Ja existeix una activitat amb aquest nom" }
+    return fail(e)
+  }
+}
+
+export async function updateProjectActivity(
+  projectId: string,
+  activityId: string,
+  input: ProjectActivityInput
+): Promise<ActionResult<{ id: string; name: string; budget: number | null }>> {
+  await requireSession()
+  try {
+    const data = activityInputSchema.parse(input)
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+      columns: { id: true, maxBudget: true },
+    })
+    if (!project) throw new Error("Projecte no trobat")
+    if (data.budget != null)
+      await assertActivityBudgetsFit(projectId, project.maxBudget, {
+        excludeActivityId: activityId,
+        nextBudget: data.budget,
+      })
+    const [row] = await db
+      .update(projectActivities)
+      .set({ name: data.name, budget: data.budget })
+      .where(and(eq(projectActivities.id, activityId), eq(projectActivities.projectId, projectId)))
+      .returning({
+        id: projectActivities.id,
+        name: projectActivities.name,
+        budget: projectActivities.budget,
+      })
+    if (!row) throw new Error("Activitat no trobada")
+    revalidatePath(`/projectes/${projectId}`)
+    return { ok: true, data: row }
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && e.code === "23505")
+      return { ok: false, error: "Ja existeix una activitat amb aquest nom" }
+    return fail(e)
+  }
+}
+
+export async function deleteProjectActivity(
+  projectId: string,
+  activityId: string
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const deleted = await db
+      .delete(projectActivities)
+      .where(and(eq(projectActivities.id, activityId), eq(projectActivities.projectId, projectId)))
+      .returning({ id: projectActivities.id })
+    if (!deleted.length) throw new Error("Activitat no trobada")
+    revalidatePath(`/projectes/${projectId}`)
+    return { ok: true }
+  } catch (e) {
     return fail(e)
   }
 }

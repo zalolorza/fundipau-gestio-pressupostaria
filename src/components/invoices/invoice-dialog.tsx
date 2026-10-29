@@ -98,6 +98,7 @@ export function InvoiceDialog({
   categoryIds: initialCategoryIds,
   categories: initialCategories = [],
   projectOptions,
+  activitiesByProject = {},
   suppliers,
   defaultSupplierId,
   defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
@@ -110,6 +111,8 @@ export function InvoiceDialog({
   categoryIds?: string[]
   categories?: CategoryRef[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  /** Activitats agrupades per projecte (selector al costat de cada projecte). */
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   /** Proveïdor preseleccionat en crear una factura (p. ex. des de la fitxa del proveïdor) */
   defaultSupplierId?: string
@@ -584,7 +587,8 @@ export function InvoiceDialog({
             <FieldSet>
               <FieldLegend>Projectes</FieldLegend>
               <FieldDescription>
-                Percentatge del cost imputat a cada projecte. Pot quedar una part sense assignar.
+                Percentatge del cost imputat a cada projecte i, opcionalment, l&apos;activitat.
+                Pot quedar una part sense assignar.
               </FieldDescription>
               <AllocationEditor
                 value={alloc}
@@ -593,6 +597,7 @@ export function InvoiceDialog({
                 mode="max"
                 itemLabel="projecte"
                 emptyText="Factura sense assignar a cap projecte"
+                activitiesByProject={activitiesByProject}
               />
             </FieldSet>
           </FieldGroup>

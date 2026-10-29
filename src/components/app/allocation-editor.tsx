@@ -10,16 +10,23 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { round2 } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 export type AllocationRow = {
   id: string
   percentage: number
   costType?: CostType
   categoryIds?: string[]
+  /** Activitat del projecte (només assignacions de factura). */
+  activityId?: string | null
 }
 export type AllocationOption = { id: string; name: string; hint?: string; disabled?: boolean }
+export type AllocationActivityOption = { id: string; name: string }
+
+const ACTIVITY_NONE = "__none__"
 
 export function allocationSum(rows: AllocationRow[]) {
   return round2(rows.reduce((s, r) => s + (Number(r.percentage) || 0), 0))
@@ -45,6 +52,7 @@ export function AllocationEditor({
   withCostType = false,
   categories,
   onCatalogChange,
+  activitiesByProject,
 }: {
   value: AllocationRow[]
   onChange: (rows: AllocationRow[]) => void
@@ -57,8 +65,11 @@ export function AllocationEditor({
   /** Catàleg de categories; si hi és, mostra el picker per fila (nòmines). */
   categories?: CategoryRef[]
   onCatalogChange?: (next: CategoryRef[]) => void
+  /** Activitats per projecte; si hi és, mostra el selector d'activitat (factures). */
+  activitiesByProject?: Record<string, AllocationActivityOption[]>
 }) {
   const withCategories = !!categories
+  const withActivities = !!activitiesByProject
   const sum = allocationSum(value)
   const error = allocationError(value, mode)
   const used = new Set(value.map((r) => r.id))
@@ -81,72 +92,111 @@ export function AllocationEditor({
           {emptyText ?? "Sense assignar"}
         </p>
       )}
-      {value.map((row, i) => (
-        <div key={i} className="space-y-2 rounded-lg border border-transparent p-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={row.id} onValueChange={(id) => update(i, { id })}>
-              <SelectTrigger className="min-w-0 flex-1 basis-40">
-                <SelectValue placeholder={`Tria ${itemLabel}…`} />
-              </SelectTrigger>
-              <SelectContent>
-                {options.map((o) => (
-                  <SelectItem key={o.id} value={o.id} disabled={o.disabled || (used.has(o.id) && o.id !== row.id)}>
-                    {o.name}
-                    {o.hint && <span className="text-muted-foreground"> · {o.hint}</span>}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {withCostType && (
+      {value.map((row, i) => {
+        const projectActivities = row.id ? (activitiesByProject?.[row.id] ?? []) : []
+        const dense = withCostType || withCategories || withActivities
+        return (
+          <div key={i}>
+            {i > 0 && <Separator className={cn("mb-2", dense ? "lg:hidden" : "sm:hidden")} />}
+            <div className={cn("flex flex-wrap items-center gap-2", dense && "lg:flex-nowrap")}>
               <Select
-                value={row.costType ?? "direct"}
-                onValueChange={(v) => update(i, { costType: v as CostType })}
+                value={row.id}
+                onValueChange={(id) =>
+                  update(i, { id, ...(withActivities ? { activityId: null } : {}) })
+                }
               >
-                <SelectTrigger className="w-32 shrink-0" aria-label="Tipus de cost">
-                  <SelectValue />
+                <SelectTrigger className="min-w-0 flex-1 basis-40 lg:basis-auto lg:min-w-48">
+                  <SelectValue placeholder={`Tria ${itemLabel}…`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
-                  <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                  {options.map((o) => (
+                    <SelectItem
+                      key={o.id}
+                      value={o.id}
+                      disabled={o.disabled || (used.has(o.id) && o.id !== row.id)}
+                    >
+                      {o.name}
+                      {o.hint && (
+                        <span className="text-muted-foreground"> · {o.hint}</span>
+                      )}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-            )}
-            <div className="relative w-24 shrink-0">
-              <Input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={100}
-                step="0.01"
-                value={Number.isNaN(row.percentage) ? "" : row.percentage}
-                onChange={(e) => update(i, { percentage: e.target.valueAsNumber })}
-                className="pr-6 text-right"
-                aria-label="Percentatge"
-              />
-              <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
-                %
-              </span>
+              {withActivities && (
+                <Select
+                  value={row.activityId ?? ACTIVITY_NONE}
+                  onValueChange={(v) =>
+                    update(i, { activityId: v === ACTIVITY_NONE ? null : v })
+                  }
+                  disabled={!row.id || projectActivities.length === 0}
+                >
+                  <SelectTrigger className="w-full sm:w-44 shrink-0" aria-label="Activitat">
+                    <SelectValue placeholder="Sense activitat" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ACTIVITY_NONE}>Sense activitat</SelectItem>
+                    {projectActivities.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {withCostType && (
+                <Select
+                  value={row.costType ?? "direct"}
+                  onValueChange={(v) => update(i, { costType: v as CostType })}
+                >
+                  <SelectTrigger className="w-full sm:w-32 shrink-0" aria-label="Tipus de cost">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
+                    <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {withCategories && (
+                <CategoryPicker
+                  className="min-w-0 w-full sm:w-44 shrink-0"
+                  compact
+                  categories={categories!}
+                  value={row.categoryIds ?? []}
+                  onChange={(categoryIds) => update(i, { categoryIds })}
+                  onCatalogChange={onCatalogChange}
+                />
+              )}
+              <div className="relative w-24 shrink-0">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={Number.isNaN(row.percentage) ? "" : row.percentage}
+                  onChange={(e) => update(i, { percentage: e.target.valueAsNumber })}
+                  className="pr-6 text-right"
+                  aria-label="Percentatge"
+                />
+                <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-muted-foreground">
+                  %
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => onChange(value.filter((_, idx) => idx !== i))}
+                aria-label="Elimina"
+              >
+                <Trash2Icon />
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => onChange(value.filter((_, idx) => idx !== i))}
-              aria-label="Elimina"
-            >
-              <Trash2Icon />
-            </Button>
           </div>
-          {withCategories && (
-            <CategoryPicker
-              categories={categories!}
-              value={row.categoryIds ?? []}
-              onChange={(categoryIds) => update(i, { categoryIds })}
-              onCatalogChange={onCatalogChange}
-            />
-          )}
-        </div>
-      ))}
+        )
+      })}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
         <div className="flex gap-2">
           <Button
@@ -161,6 +211,7 @@ export function AllocationEditor({
                   percentage: Math.max(0, round2((mode === "exact" ? 100 : 100) - sum)),
                   ...(withCostType ? { costType: "direct" as const } : {}),
                   ...(withCategories ? { categoryIds: [] } : {}),
+                  ...(withActivities ? { activityId: null } : {}),
                 },
               ])
             }

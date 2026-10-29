@@ -81,12 +81,14 @@ function SortableHead({
 export function InvoicesTable({
   invoices,
   projectOptions,
+  activitiesByProject = {},
   suppliers,
   categories = [],
   defaultVatDeductibleRate,
 }: {
   invoices: InvoiceListItem[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
@@ -303,10 +305,15 @@ export function InvoicesTable({
                     <TableCell className="pr-4">
                       <InvoiceRowActions
                         invoice={row}
-                        allocations={allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
+                        allocations={allocations.map((a) => ({
+                          id: a.projectId,
+                          percentage: a.percentage,
+                          activityId: a.activityId,
+                        }))}
                         categoryIds={inv.categoryIds}
                         categories={categories}
                         projectOptions={projectOptions}
+                        activitiesByProject={activitiesByProject}
                         suppliers={suppliers}
                         open={rowEditId === inv.id}
                         onOpenChange={(o) => setRowEditId(o ? inv.id : null)}
@@ -340,6 +347,7 @@ export function InvoicesTable({
         onOpenChange={setEditOpen}
         invoiceIds={selectedIds}
         projectOptions={projectOptions}
+        activitiesByProject={activitiesByProject}
         suppliers={suppliers}
         categories={categories}
         defaultVatDeductibleRate={defaultVatDeductibleRate}

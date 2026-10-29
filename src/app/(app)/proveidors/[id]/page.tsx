@@ -22,11 +22,13 @@ import {
 import { getDefaultVatDeductibleRate } from "@/lib/app-settings"
 import { formatDate, formatEuro, round2 } from "@/lib/format"
 import {
+  activitiesByProjectMap,
   getProjectOptions,
   getSupplier,
   getSupplierOptions,
   listCategories,
   listInvoices,
+  listProjectActivities,
 } from "@/server/queries"
 
 const isUuid = (id: string) => /^[0-9a-f-]{36}$/i.test(id)
@@ -41,15 +43,23 @@ export async function generateMetadata({ params }: PageProps<"/proveidors/[id]">
 export default async function SupplierPage({ params }: PageProps<"/proveidors/[id]">) {
   const { id } = await params
   if (!isUuid(id)) notFound()
-  const [supplier, invoices, projects, supplierOptions, categories, defaultVatDeductibleRate] =
-    await Promise.all([
-      getSupplier(id),
-      listInvoices({ supplierId: id }),
-      getProjectOptions(),
-      getSupplierOptions(),
-      listCategories(),
-      getDefaultVatDeductibleRate(),
-    ])
+  const [
+    supplier,
+    invoices,
+    projects,
+    supplierOptions,
+    categories,
+    activities,
+    defaultVatDeductibleRate,
+  ] = await Promise.all([
+    getSupplier(id),
+    listInvoices({ supplierId: id }),
+    getProjectOptions(),
+    getSupplierOptions(),
+    listCategories(),
+    listProjectActivities(),
+    getDefaultVatDeductibleRate(),
+  ])
   if (!supplier) notFound()
 
   const today = new Date().toISOString().slice(0, 10)
@@ -59,6 +69,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
     hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
   }))
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }))
+  const activitiesByProject = activitiesByProjectMap(activities)
   const sum = (k: "baseAmount" | "vatAmount" | "irpfAmount" | "total" | "cost") =>
     round2(invoices.reduce((s, i) => s + i[k], 0))
   const thisYear = today.slice(0, 4)
@@ -113,6 +124,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
             <CardAction>
               <InvoiceDialog
                 projectOptions={projectOptions}
+                activitiesByProject={activitiesByProject}
                 suppliers={supplierOptions}
                 categories={categoryOptions}
                 defaultSupplierId={supplier.id}
@@ -161,10 +173,15 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                   <InvoiceTableRow
                     key={inv.id}
                     invoice={row}
-                    allocations={allocations.map((a) => ({ id: a.projectId, percentage: a.percentage }))}
+                    allocations={allocations.map((a) => ({
+                      id: a.projectId,
+                      percentage: a.percentage,
+                      activityId: a.activityId,
+                    }))}
                     categoryIds={categoryIds}
                     categories={categoryOptions}
                     projectOptions={projectOptions}
+                    activitiesByProject={activitiesByProject}
                     suppliers={supplierOptions}
                   >
                     <TableCell className="pl-4 whitespace-nowrap">{formatDate(inv.issueDate)}</TableCell>

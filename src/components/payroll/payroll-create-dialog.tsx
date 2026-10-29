@@ -25,10 +25,12 @@ import { createPayroll } from "@/server/actions"
 
 export function PayrollCreateDialog({
   projectOptions,
+  activitiesByProject = {},
   categories: initialCategories = [],
   children,
 }: {
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   categories?: CategoryRef[]
   children: React.ReactNode
 }) {
@@ -67,7 +69,7 @@ export function PayrollCreateDialog({
       }}
     >
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>Nova nòmina</DialogTitle>
           <DialogDescription>
@@ -128,6 +130,7 @@ export function PayrollCreateDialog({
                 withCostType
                 categories={catalog}
                 onCatalogChange={setCatalog}
+                activitiesByProject={activitiesByProject}
               />
             </FieldSet>
           </FieldGroup>

@@ -24,6 +24,7 @@ export function EntryAllocationDialog({
   month,
   allocations,
   projectOptions,
+  activitiesByProject = {},
   categories: initialCategories = [],
   open: controlledOpen,
   onOpenChange,
@@ -33,6 +34,7 @@ export function EntryAllocationDialog({
   month: string
   allocations: AllocationRow[]
   projectOptions: { id: string; name: string; hint?: string }[]
+  activitiesByProject?: Record<string, { id: string; name: string }[]>
   categories?: CategoryRef[]
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -68,10 +70,12 @@ export function EntryAllocationDialog({
         }}
       >
         {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-5xl">
           <DialogHeader>
             <DialogTitle>Projectes · {formatMonth(month)}</DialogTitle>
-            <DialogDescription>Percentatge de la nòmina imputat a cada projecte.</DialogDescription>
+            <DialogDescription>
+              Percentatge de la nòmina imputat a cada projecte i, opcionalment, l&apos;activitat.
+            </DialogDescription>
           </DialogHeader>
           <AllocationEditor
             value={alloc}
@@ -83,6 +87,7 @@ export function EntryAllocationDialog({
             withCostType
             categories={catalog}
             onCatalogChange={setCatalog}
+            activitiesByProject={activitiesByProject}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

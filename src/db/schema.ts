@@ -228,6 +228,30 @@ export const costCategories = pgTable(
   (t) => [uniqueIndex("cost_categories_name_uq").on(t.name)]
 )
 
+/** Activitats d'un projecte (una assignació de factura/nòmina pot tenir-ne com a màxim una). */
+export const projectActivities = pgTable(
+  "project_activities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Pressupost opcional de l'activitat; si hi és, es mostra el progrés a la fitxa. */
+    budget: money("budget"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    index("project_activities_project_idx").on(t.projectId),
+    uniqueIndex("project_activities_project_name_uq").on(t.projectId, t.name),
+    check(
+      "project_activities_budget",
+      sql`${t.budget} is null or ${t.budget} >= 0`
+    ),
+  ]
+)
+
 /** Proveïdors */
 export const suppliers = pgTable(
   "suppliers",
@@ -302,10 +326,15 @@ export const invoiceProjects = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     percentage: pct("percentage").notNull(),
+    /** Activitat del projecte (opcional; 0 o 1). */
+    activityId: uuid("activity_id").references(() => projectActivities.id, {
+      onDelete: "set null",
+    }),
   },
   (t) => [
     primaryKey({ columns: [t.invoiceId, t.projectId] }),
     check("invoice_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+    index("invoice_projects_activity_idx").on(t.activityId),
   ]
 )
 
@@ -370,11 +399,16 @@ export const payrollEntryProjects = pgTable(
     percentage: pct("percentage").notNull(),
     /** Cost directe o indirecte d'aquesta assignació al projecte. */
     costType: text("cost_type").notNull().default("direct").$type<"direct" | "indirect">(),
+    /** Activitat del projecte (opcional; 0 o 1). */
+    activityId: uuid("activity_id").references(() => projectActivities.id, {
+      onDelete: "set null",
+    }),
   },
   (t) => [
     primaryKey({ columns: [t.entryId, t.projectId] }),
     check("payroll_entry_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
     check("payroll_entry_projects_cost_type", sql`${t.costType} in ('direct', 'indirect')`),
+    index("payroll_entry_projects_activity_idx").on(t.activityId),
   ]
 )
 
@@ -409,6 +443,16 @@ export const clientsRelations = relations(clients, ({ many }) => ({
 
 export const projectsRelations = relations(projects, ({ many }) => ({
   clients: many(projectClients),
+  activities: many(projectActivities),
+  invoices: many(invoiceProjects),
+  payrollEntries: many(payrollEntryProjects),
+}))
+
+export const projectActivitiesRelations = relations(projectActivities, ({ one, many }) => ({
+  project: one(projects, {
+    fields: [projectActivities.projectId],
+    references: [projects.id],
+  }),
   invoices: many(invoiceProjects),
   payrollEntries: many(payrollEntryProjects),
 }))
@@ -439,6 +483,10 @@ export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => 
     references: [supplierInvoices.id],
   }),
   project: one(projects, { fields: [invoiceProjects.projectId], references: [projects.id] }),
+  activity: one(projectActivities, {
+    fields: [invoiceProjects.activityId],
+    references: [projectActivities.id],
+  }),
 }))
 
 export const invoiceCategoriesRelations = relations(invoiceCategories, ({ one }) => ({
@@ -470,6 +518,10 @@ export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ 
     fields: [payrollEntryProjects.projectId],
     references: [projects.id],
   }),
+  activity: one(projectActivities, {
+    fields: [payrollEntryProjects.activityId],
+    references: [projectActivities.id],
+  }),
   categories: many(payrollEntryProjectCategories),
 }))
 
@@ -494,6 +546,7 @@ export type SupplierInvoice = typeof supplierInvoices.$inferSelect
 export type Payroll = typeof payrolls.$inferSelect
 export type PayrollEntry = typeof payrollEntries.$inferSelect
 export type CostCategory = typeof costCategories.$inferSelect
+export type ProjectActivity = typeof projectActivities.$inferSelect
 export type Invitation = typeof invitations.$inferSelect
 export type User = typeof user.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect

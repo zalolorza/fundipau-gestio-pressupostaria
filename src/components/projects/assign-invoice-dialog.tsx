@@ -14,11 +14,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import type { ActivityRef } from "@/components/projects/project-activities"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { formatDate, formatEuro, round2 } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { assignInvoiceToProject } from "@/server/actions"
+
+const NONE = "__none__"
 
 export type AssignableInvoice = {
   id: string
@@ -34,6 +38,7 @@ export function AssignInvoiceDialog({
   projectId,
   invoices,
   current,
+  activities = [],
   open: controlledOpen,
   onOpenChange,
   children,
@@ -42,6 +47,7 @@ export function AssignInvoiceDialog({
   invoices: AssignableInvoice[]
   /** percentatges actuals d'aquest projecte, per factura */
   current: Record<string, number>
+  activities?: ActivityRef[]
   open?: boolean
   onOpenChange?: (open: boolean) => void
   children?: React.ReactNode
@@ -52,6 +58,7 @@ export function AssignInvoiceDialog({
   const [q, setQ] = useState("")
   const [selected, setSelected] = useState<string | null>(null)
   const [percentage, setPercentage] = useState<number>(100)
+  const [activityId, setActivityId] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
   const available = (inv: AssignableInvoice) => round2(100 - inv.assigned + (current[inv.id] ?? 0))
@@ -77,13 +84,14 @@ export function AssignInvoiceDialog({
     if (next) {
       setSelected(null)
       setQ("")
+      setActivityId(null)
     }
   }
 
   function submit() {
     if (!selected) return
     start(async () => {
-      const res = await assignInvoiceToProject(projectId, selected, percentage)
+      const res = await assignInvoiceToProject(projectId, selected, percentage, activityId)
       if (!res.ok) return void toast.error(res.error)
       toast.success("Factura assignada")
       setOpen(false)
@@ -141,24 +149,47 @@ export function AssignInvoiceDialog({
           ))}
         </div>
         {sel && (
-          <Field orientation="horizontal" className="items-center">
-            <FieldLabel htmlFor="pct" className="flex-1">
-              Percentatge a imputar (màx. {available(sel)} %)
-            </FieldLabel>
-            <Input
-              id="pct"
-              type="number"
-              min={0.01}
-              max={available(sel)}
-              step="0.01"
-              value={Number.isNaN(percentage) ? "" : percentage}
-              onChange={(e) => setPercentage(e.target.valueAsNumber)}
-              className="w-28 text-right"
-            />
-            <span className="w-28 text-right text-sm tabular-nums">
-              {formatEuro(((percentage || 0) * sel.cost) / 100)}
-            </span>
-          </Field>
+          <div className="space-y-3">
+            <Field orientation="horizontal" className="items-center">
+              <FieldLabel htmlFor="pct" className="flex-1">
+                Percentatge a imputar (màx. {available(sel)} %)
+              </FieldLabel>
+              <Input
+                id="pct"
+                type="number"
+                min={0.01}
+                max={available(sel)}
+                step="0.01"
+                value={Number.isNaN(percentage) ? "" : percentage}
+                onChange={(e) => setPercentage(e.target.valueAsNumber)}
+                className="w-28 text-right"
+              />
+              <span className="w-28 text-right text-sm tabular-nums">
+                {formatEuro(((percentage || 0) * sel.cost) / 100)}
+              </span>
+            </Field>
+            {activities.length > 0 && (
+              <Field orientation="horizontal" className="items-center">
+                <FieldLabel className="flex-1">Activitat</FieldLabel>
+                <Select
+                  value={activityId ?? NONE}
+                  onValueChange={(v) => setActivityId(v === NONE ? null : v)}
+                >
+                  <SelectTrigger className="w-56" aria-label="Activitat">
+                    <SelectValue placeholder="Sense activitat" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Sense activitat</SelectItem>
+                    {activities.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+          </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
