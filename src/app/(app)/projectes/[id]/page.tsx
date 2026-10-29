@@ -259,10 +259,10 @@ export default async function ProjectPage({
                       </Link>
                       <div className="flex items-center gap-2">
                         <Badge variant="secondary">
-                          {formatEuro(project.maxBudget * c.percentage)}
+                          {formatPct(c.percentage)}
                         </Badge>
                         <Badge variant="tertiary">
-                          {formatPct(c.percentage)}
+                          {formatEuro(project.maxBudget * c.percentage)}
                         </Badge>
                       </div>
                     </div>
