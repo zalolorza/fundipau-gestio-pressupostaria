@@ -24,6 +24,9 @@ export function ClientBillingProjectPanel({
 }: {
   group: ClientBillingProject;
 }) {
+  const showActivityTab =
+    group.hasActivities && group.activityTotals.some((row) => row.id != null);
+
   return (
     <details className="group rounded-lg border" open={group.total > 0}>
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-4 gap-y-1 p-3 [&::-webkit-details-marker]:hidden">
@@ -53,6 +56,9 @@ export function ClientBillingProjectPanel({
             <TabsList>
               <TabsTrigger value="partida">Per partida</TabsTrigger>
               <TabsTrigger value="tipus">Per tipus / categoria</TabsTrigger>
+              {showActivityTab && (
+                <TabsTrigger value="activitat">Per activitat</TabsTrigger>
+              )}
             </TabsList>
           </div>
           <TabsContent value="partida">
@@ -113,6 +119,11 @@ export function ClientBillingProjectPanel({
             <CostsByCostType costs={group.costs} />
             <CostsByCategory totals={group.categoryTotals} />
           </TabsContent>
+          {showActivityTab && (
+            <TabsContent value="activitat">
+              <CostsByActivity totals={group.activityTotals} />
+            </TabsContent>
+          )}
         </Tabs>
       )}
     </details>
@@ -214,6 +225,54 @@ function CostsByCategory({
         <TableHeader>
           <TableRow>
             <TableHead className="pl-4">Categoria</TableHead>
+            <TableHead className="pr-4 text-right">A facturar</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {totals.map((row) => (
+            <TableRow key={row.id ?? "none"}>
+              <TableCell
+                className={cn(
+                  "pl-4 font-medium",
+                  row.id == null && "text-muted-foreground",
+                )}
+              >
+                {row.name}
+              </TableCell>
+              <TableCell className="pr-4 text-right tabular-nums">
+                {formatEuro(row.amount)}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function CostsByActivity({
+  totals,
+}: {
+  totals: ClientBillingProject["activityTotals"];
+}) {
+  if (totals.length === 0) {
+    return (
+      <div>
+        <p className="border-b px-4 py-2 text-sm font-medium">Per activitat</p>
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          Cap cost amb activitats en aquest període.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="border-b px-4 py-2 text-sm font-medium">Per activitat</p>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="pl-4">Activitat</TableHead>
             <TableHead className="pr-4 text-right">A facturar</TableHead>
           </TableRow>
         </TableHeader>
