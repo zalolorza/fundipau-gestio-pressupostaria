@@ -10,8 +10,14 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { ConfirmButton } from "@/components/app/confirm-button";
+import { DownloadXlsxButton } from "@/components/app/download-xlsx-button";
 import { AmountChangeDialog } from "@/components/payroll/amount-change-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  buildPayrollSheets,
+  payrollExportFilename,
+  type PayrollExportEntry,
+} from "@/lib/exports/payroll";
 import {
   Dialog,
   DialogContent,
@@ -42,10 +48,12 @@ export function PayrollHeaderActions({
   payroll,
   referenceMonth,
   lastMonth,
+  entries,
 }: {
   payroll: Payroll;
   referenceMonth: string;
   lastMonth: string | null;
+  entries: PayrollExportEntry[];
 }) {
   return (
     <>
@@ -59,6 +67,11 @@ export function PayrollHeaderActions({
         </Button>
       </AmountChangeDialog>
       <ExtendDialog payrollId={payroll.id} lastMonth={lastMonth} />
+      <DownloadXlsxButton
+        filename={payrollExportFilename(payroll.personName)}
+        getSheets={() => buildPayrollSheets(entries)}
+        disabled={entries.length === 0}
+      />
       <InfoDialog payroll={payroll} />
       <ConfirmButton
         title="Eliminar la nòmina?"

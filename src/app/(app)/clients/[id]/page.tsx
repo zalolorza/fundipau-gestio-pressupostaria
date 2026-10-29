@@ -6,7 +6,7 @@ import { Suspense } from "react";
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header";
 import { PeriodPicker } from "@/components/app/period-picker";
 import { ClientActions } from "@/components/clients/client-actions";
-import { ClientBillingProjectPanel } from "@/components/clients/client-billing-project";
+import { ClientBilling } from "@/components/clients/client-billing";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { formatEuro, formatMonth, formatPct } from "@/lib/format";
+import { formatPct } from "@/lib/format";
 import { addMonths, currentMonth } from "@/lib/months";
 import { getClient, getClientBilling } from "@/server/queries";
 
@@ -142,7 +142,12 @@ export default async function ClientPage({
                 <p className="text-sm text-muted-foreground">Calculant…</p>
               }
             >
-              <Billing clientId={client.id} from={from} to={to} />
+              <Billing
+                clientId={client.id}
+                clientName={client.name}
+                from={from}
+                to={to}
+              />
             </Suspense>
           </div>
         </div>
@@ -153,10 +158,12 @@ export default async function ClientPage({
 
 async function Billing({
   clientId,
+  clientName,
   from,
   to,
 }: {
   clientId: string;
+  clientName: string;
   from: string;
   to: string;
 }) {
@@ -169,26 +176,12 @@ async function Billing({
     );
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-lg bg-primary/5 p-4">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            Total a facturar · {formatMonth(from)} – {formatMonth(to)}
-          </p>
-          <p className="text-3xl font-semibold text-primary tabular-nums">
-            {formatEuro(billing.total)}
-          </p>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Imports sense IVA de la factura a emetre.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        {billing.projects.map((g) => (
-          <ClientBillingProjectPanel key={g.project.id} group={g} />
-        ))}
-      </div>
-    </div>
+    <ClientBilling
+      clientName={clientName}
+      from={from}
+      to={to}
+      projects={billing.projects}
+      total={billing.total}
+    />
   );
 }

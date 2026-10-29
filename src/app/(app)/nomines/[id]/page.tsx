@@ -91,6 +91,22 @@ export default async function PayrollPage({
             payroll={row}
             referenceMonth={reference}
             lastMonth={last}
+            entries={payroll.entries.map((e) => ({
+              month: e.month,
+              amount: e.amount,
+              assigned: e.assigned,
+              allocations: e.allocations.map((a) => ({
+                name: a.name,
+                percentage: a.percentage,
+                costType: a.costType,
+                categories: a.categories,
+                activityId: a.activityId,
+                activityName: a.activityId
+                  ? activities.find((act) => act.id === a.activityId)?.name ??
+                    null
+                  : null,
+              })),
+            }))}
           />
         </PageTitle>
 

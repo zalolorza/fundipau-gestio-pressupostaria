@@ -5,11 +5,13 @@ import { notFound } from "next/navigation"
 
 import { PageBody, PageHeader, PageTitle } from "@/components/app/page-header"
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog"
+import { InvoicesXlsxButton } from "@/components/invoices/invoices-xlsx-button"
 import { InvoiceTableRow } from "@/components/invoices/invoice-table-row"
 import { SupplierActions } from "@/components/suppliers/supplier-actions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { supplierInvoicesFilename } from "@/lib/exports/invoices"
 import {
   Table,
   TableBody,
@@ -121,7 +123,11 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
           <CardHeader className="border-b pb-4">
             <CardTitle>Factures</CardTitle>
             <CardDescription>Factures enllaçades a aquest proveïdor.</CardDescription>
-            <CardAction>
+            <CardAction className="flex flex-wrap gap-2">
+              <InvoicesXlsxButton
+                invoices={invoices}
+                filename={supplierInvoicesFilename(supplier.name)}
+              />
               <InvoiceDialog
                 projectOptions={projectOptions}
                 activitiesByProject={activitiesByProject}

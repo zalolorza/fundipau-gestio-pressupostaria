@@ -160,6 +160,20 @@ export default async function ProjectPage({
             project={projectRow}
             clients={clientRows}
             clientOptions={clientOptions}
+            exportData={{
+              name: project.name,
+              maxBudget: project.maxBudget,
+              costs: project.costs,
+              categoryTotals: project.categoryTotals,
+              activities: project.activities.map((a) => ({
+                name: a.name,
+                budget: a.budget,
+                spent: a.spent,
+                progress: a.progress,
+              })),
+              invoices: project.invoices,
+              payroll: project.payroll,
+            }}
           />
         </PageTitle>
 
@@ -318,6 +332,7 @@ export default async function ProjectPage({
             <TabsContent value="factures">
               <AssignedInvoices
                 projectId={project.id}
+                projectName={project.name}
                 invoices={project.invoices}
                 projectOptions={projectOptions}
                 activitiesByProject={activitiesByProject}
@@ -329,6 +344,7 @@ export default async function ProjectPage({
             <TabsContent value="nomines">
               <AssignedPayroll
                 projectId={project.id}
+                projectName={project.name}
                 groups={project.payroll}
                 payrolls={payrolls}
                 categories={categoryOptions}

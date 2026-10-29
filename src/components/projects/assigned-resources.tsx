@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 
+import { DownloadXlsxButton } from "@/components/app/download-xlsx-button"
 import { InteractiveTableRow } from "@/components/app/interactive-table-row"
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog"
 import {
@@ -17,6 +18,12 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { SupplierInvoice } from "@/db/schema"
+import {
+  buildAssignedInvoiceSheets,
+  buildAssignedPayrollSheets,
+  projectInvoicesFilename,
+  projectPayrollFilename,
+} from "@/lib/exports/project"
 import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { formatDate, formatEuro, formatMonth, formatPct } from "@/lib/format"
 import type { ActivityRef } from "@/components/projects/project-activities"
@@ -233,6 +240,7 @@ function PayrollActivitySelect({
 
 export function AssignedInvoices({
   projectId,
+  projectName,
   invoices,
   projectOptions,
   activitiesByProject = {},
@@ -241,6 +249,7 @@ export function AssignedInvoices({
   activities = [],
 }: {
   projectId: string
+  projectName: string
   invoices: Inv[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
@@ -269,10 +278,18 @@ export function AssignedInvoices({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
-        <CostTypeFilterSelect value={tipus} onChange={setTipus} />
-        <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
-        <ActivityFilterSelect value={activitat} onChange={setActivitat} activities={activities} />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+        <DownloadXlsxButton
+          size="sm"
+          filename={projectInvoicesFilename(projectName)}
+          getSheets={() => buildAssignedInvoiceSheets(filtered)}
+          disabled={filtered.length === 0}
+        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <CostTypeFilterSelect value={tipus} onChange={setTipus} />
+          <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
+          <ActivityFilterSelect value={activitat} onChange={setActivitat} activities={activities} />
+        </div>
       </div>
       {filtered.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">Cap factura amb aquest filtre.</p>
@@ -417,6 +434,7 @@ function editFromGroup(g: PersonGroup): PayrollAssignmentEdit {
 
 export function AssignedPayroll({
   projectId,
+  projectName,
   groups,
   payrolls,
   categories = [],
@@ -425,6 +443,7 @@ export function AssignedPayroll({
   defaultTo,
 }: {
   projectId: string
+  projectName: string
   groups: PersonGroup[]
   payrolls: PayrollOption[]
   categories?: { id: string; name: string }[]
@@ -468,10 +487,18 @@ export function AssignedPayroll({
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-end gap-2 border-b px-4 py-2">
-        <CostTypeFilterSelect value={tipus} onChange={setTipus} />
-        <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
-        <ActivityFilterSelect value={activitat} onChange={setActivitat} activities={activities} />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+        <DownloadXlsxButton
+          size="sm"
+          filename={projectPayrollFilename(projectName)}
+          getSheets={() => buildAssignedPayrollSheets(filtered)}
+          disabled={filtered.length === 0}
+        />
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <CostTypeFilterSelect value={tipus} onChange={setTipus} />
+          <CategoryFilterSelect value={categoria} onChange={setCategoria} categories={categories} />
+          <ActivityFilterSelect value={activitat} onChange={setActivitat} activities={activities} />
+        </div>
       </div>
       <AssignPayrollDialog
         projectId={projectId}

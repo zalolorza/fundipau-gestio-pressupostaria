@@ -2,6 +2,7 @@
 
 import { ChevronRightIcon } from "lucide-react";
 
+import { DownloadXlsxButton } from "@/components/app/download-xlsx-button";
 import { InteractiveTableRow } from "@/components/app/interactive-table-row";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,6 +15,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  buildClientBillingSheets,
+  clientBillingFilename,
+} from "@/lib/exports/billing";
 import { COST_TYPE_LABELS } from "@/lib/cost-type";
 import { formatDate, formatEuro, formatMonth, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -21,8 +26,14 @@ import type { ClientBillingProject } from "@/server/queries";
 
 export function ClientBillingProjectPanel({
   group,
+  clientName,
+  from,
+  to,
 }: {
   group: ClientBillingProject;
+  clientName: string;
+  from: string;
+  to: string;
 }) {
   const showActivityTab =
     group.hasActivities && group.activityTotals.some((row) => row.id != null);
@@ -52,7 +63,7 @@ export function ClientBillingProjectPanel({
         </p>
       ) : (
         <Tabs defaultValue="partida" className="border-t">
-          <div className="px-3 pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 pt-2">
             <TabsList>
               <TabsTrigger value="partida">Per partida</TabsTrigger>
               <TabsTrigger value="tipus">Per tipus / categoria</TabsTrigger>
@@ -60,6 +71,18 @@ export function ClientBillingProjectPanel({
                 <TabsTrigger value="activitat">Per activitat</TabsTrigger>
               )}
             </TabsList>
+            <DownloadXlsxButton
+              size="sm"
+              filename={clientBillingFilename(
+                clientName,
+                from,
+                to,
+                group.project.name,
+              )}
+              getSheets={() =>
+                buildClientBillingSheets([group], { withProjectColumn: false })
+              }
+            />
           </div>
           <TabsContent value="partida">
             <Table className="border-t">
