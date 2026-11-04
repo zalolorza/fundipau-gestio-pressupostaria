@@ -4,6 +4,7 @@ import {
   BriefcaseBusinessIcon,
   ChevronsUpDownIcon,
   FileTextIcon,
+  HandCoinsIcon,
   LogOutIcon,
   SettingsIcon,
   TruckIcon,
@@ -43,6 +44,7 @@ const navBase = [
     items: [
       { title: "Projectes", url: "/projectes", icon: BriefcaseBusinessIcon },
       { title: "Clients", url: "/clients", icon: UsersIcon },
+      { title: "Subvencions", url: "/subvencions", icon: HandCoinsIcon },
     ],
   },
   {

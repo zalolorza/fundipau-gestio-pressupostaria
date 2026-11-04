@@ -19,13 +19,40 @@ export function clientBillingFilename(
   return `${base}-factures-a-emetre-${period}.xlsx`
 }
 
+export function subsidyBillingFilename(
+  subsidyName: string,
+  projectName?: string
+) {
+  const base = `subvencio-${slugifyFilePart(subsidyName)}`
+  if (projectName) {
+    return `${base}-projecte-${slugifyFilePart(projectName)}-assignacions.xlsx`
+  }
+  return `${base}-assignacions.xlsx`
+}
+
 function lineKindLabel(kind: "factura" | "nomina") {
   return kind === "nomina" ? "Nòmina" : "Factura"
 }
 
+type BillingSheetLabels = {
+  shareColumn: string
+  amountColumn: string
+}
+
+const CLIENT_LABELS: BillingSheetLabels = {
+  shareColumn: "% client",
+  amountColumn: "A facturar",
+}
+
+const SUBSIDY_LABELS: BillingSheetLabels = {
+  shareColumn: "% subvenció",
+  amountColumn: "Imputat",
+}
+
 function partidaRows(
   groups: ClientBillingProject[],
-  withProject: boolean
+  withProject: boolean,
+  labels: BillingSheetLabels = CLIENT_LABELS
 ): XlsxSheet["rows"] {
   const header = withProject
     ? [
@@ -36,8 +63,8 @@ function partidaRows(
         "Detall",
         "Cost",
         "% projecte",
-        "% client",
-        "A facturar",
+        labels.shareColumn,
+        labels.amountColumn,
       ]
     : [
         "Data",
@@ -46,8 +73,8 @@ function partidaRows(
         "Detall",
         "Cost",
         "% projecte",
-        "% client",
-        "A facturar",
+        labels.shareColumn,
+        labels.amountColumn,
       ]
 
   const rows: XlsxSheet["rows"] = [header]
@@ -106,11 +133,12 @@ function tipusCategoriaRows(
 
 function activitatRows(
   groups: ClientBillingProject[],
-  withProject: boolean
+  withProject: boolean,
+  labels: BillingSheetLabels = CLIENT_LABELS
 ): XlsxSheet["rows"] {
   const header = withProject
-    ? ["Projecte", "Activitat", "A facturar"]
-    : ["Activitat", "A facturar"]
+    ? ["Projecte", "Activitat", labels.amountColumn]
+    : ["Activitat", labels.amountColumn]
   const rows: XlsxSheet["rows"] = [header]
   for (const g of groups) {
     for (const a of g.activityTotals) {
@@ -139,6 +167,26 @@ export function buildClientBillingSheets(
     {
       name: "Per activitat",
       rows: activitatRows(groups, opts.withProjectColumn),
+    },
+  ]
+}
+
+export function buildSubsidyBillingSheets(
+  groups: ClientBillingProject[],
+  opts: { withProjectColumn: boolean }
+): XlsxSheet[] {
+  return [
+    {
+      name: "Per partida",
+      rows: partidaRows(groups, opts.withProjectColumn, SUBSIDY_LABELS),
+    },
+    {
+      name: "Per tipus categoria",
+      rows: tipusCategoriaRows(groups, opts.withProjectColumn),
+    },
+    {
+      name: "Per activitat",
+      rows: activitatRows(groups, opts.withProjectColumn, SUBSIDY_LABELS),
     },
   ]
 }

@@ -24,9 +24,11 @@ export function ProjectInvoiceMenu({
   current,
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   suppliers,
   categories = [],
   activities = [],
+  funders = [],
   defaultVatDeductibleRate,
 }: {
   projectId: string
@@ -34,9 +36,11 @@ export function ProjectInvoiceMenu({
   current: Record<string, number>
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories?: { id: string; name: string }[]
   activities?: ActivityRef[]
+  funders?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
 }) {
   const [mode, setMode] = useState<"create" | "assign" | null>(null)
@@ -63,9 +67,10 @@ export function ProjectInvoiceMenu({
         }}
         projectOptions={projectOptions}
         activitiesByProject={activitiesByProject}
+        fundersByProject={fundersByProject}
         suppliers={suppliers}
         categories={categories}
-        allocations={[{ id: projectId, percentage: 100, activityId: null }]}
+        allocations={[{ id: projectId, percentage: 100, activityId: null, funderId: null }]}
         defaultVatDeductibleRate={defaultVatDeductibleRate}
       />
       <AssignInvoiceDialog
@@ -77,6 +82,7 @@ export function ProjectInvoiceMenu({
         invoices={invoices}
         current={current}
         activities={activities}
+        funders={funders}
       />
     </>
   )

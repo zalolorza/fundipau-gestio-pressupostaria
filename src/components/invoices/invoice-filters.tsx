@@ -91,9 +91,9 @@ export function InvoiceFilters({
         <SelectContent>
           <SelectItem value="all">Totes les assignacions</SelectItem>
           <SelectSeparator />
-          <SelectItem value="completa">Assignació completa</SelectItem>
-          <SelectItem value="pendent">Assignació del 100% pendent</SelectItem>
-          <SelectItem value="parcial">Assignació parcial pendent</SelectItem>
+          <SelectItem value="completa">Assignació ≥ 100 %</SelectItem>
+          <SelectItem value="pendent">Sense assignar</SelectItem>
+          <SelectItem value="parcial">Assignació parcial (&lt; 100 %)</SelectItem>
         </SelectContent>
       </Select>
       <Select

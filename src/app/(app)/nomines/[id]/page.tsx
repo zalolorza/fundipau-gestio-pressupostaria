@@ -15,10 +15,12 @@ import { formatEuro, formatMonth, round2 } from "@/lib/format";
 import { currentMonth } from "@/lib/months";
 import {
   activitiesByProjectMap,
+  fundersByProjectMap,
   getPayroll,
   getProjectOptions,
   listCategories,
   listProjectActivities,
+  listProjectFunders,
 } from "@/server/queries";
 
 export async function generateMetadata({
@@ -35,11 +37,12 @@ export default async function PayrollPage({
 }: PageProps<"/nomines/[id]">) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const [payroll, projects, categories, activities] = await Promise.all([
+  const [payroll, projects, categories, activities, funders] = await Promise.all([
     getPayroll(id),
     getProjectOptions(),
     listCategories(),
     listProjectActivities(),
+    listProjectFunders(),
   ]);
   if (!payroll) notFound();
 
@@ -51,6 +54,7 @@ export default async function PayrollPage({
   }));
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const activitiesByProject = activitiesByProjectMap(activities);
+  const fundersByProject = fundersByProjectMap(funders);
   const now = currentMonth();
   const months = payroll.entries.map((e) => e.month).sort();
   const first = months[0] ?? null;
@@ -105,6 +109,10 @@ export default async function PayrollPage({
                   ? activities.find((act) => act.id === a.activityId)?.name ??
                     null
                   : null,
+                funderId: a.funderId ?? null,
+                funderName: a.funderId
+                  ? funders.find((f) => f.id === a.funderId)?.name ?? null
+                  : null,
               })),
             }))}
           />
@@ -156,6 +164,7 @@ export default async function PayrollPage({
               entries={payroll.entries}
               projectOptions={projectOptions}
               activitiesByProject={activitiesByProject}
+              fundersByProject={fundersByProject}
               categories={categoryOptions}
               current={now}
             />

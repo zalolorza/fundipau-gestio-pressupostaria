@@ -25,6 +25,7 @@ export function EntryAllocationDialog({
   allocations,
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   categories: initialCategories = [],
   open: controlledOpen,
   onOpenChange,
@@ -35,6 +36,7 @@ export function EntryAllocationDialog({
   allocations: AllocationRow[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   categories?: CategoryRef[]
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -74,7 +76,8 @@ export function EntryAllocationDialog({
           <DialogHeader>
             <DialogTitle>Projectes · {formatMonth(month)}</DialogTitle>
             <DialogDescription>
-              Percentatge de la nòmina imputat a cada projecte i, opcionalment, l&apos;activitat.
+              Percentatge de la nòmina imputat a cada projecte i, opcionalment, l&apos;activitat
+              i el finançador.
             </DialogDescription>
           </DialogHeader>
           <AllocationEditor
@@ -88,6 +91,9 @@ export function EntryAllocationDialog({
             categories={catalog}
             onCatalogChange={setCatalog}
             activitiesByProject={activitiesByProject}
+            fundersByProject={fundersByProject}
+            allowDuplicateIds
+            allowOver100
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
@@ -95,7 +101,10 @@ export function EntryAllocationDialog({
             </Button>
             <Button
               onClick={() => {
-                const err = allocationError(alloc, "max")
+                const err = allocationError(alloc, "max", {
+                  allowDuplicateIds: true,
+                  allowOver100: true,
+                })
                 if (err) return void toast.error(err)
                 setOpen(false)
                 setScopeOpen(true)

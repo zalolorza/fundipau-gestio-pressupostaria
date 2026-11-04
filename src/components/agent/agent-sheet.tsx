@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils"
 const EXAMPLES = [
   "Quin pressupost queda en aquest projecte?",
   "Cerca factures pendents d'assignar",
-  "Assigna la factura més recent al projecte actual al 50%",
+  "Què queda disponible d'aquesta subvenció?",
 ]
 
 type PendingFile = { id: string; file: File }
@@ -159,9 +159,16 @@ export function AgentSheet({
     const trimmed = text.trim()
     if ((!trimmed && pending.length === 0) || busy) return
     clearError()
-    setUploading(true)
     try {
-      const attachments = pending.length ? await uploadPending() : []
+      let attachments: ChatAttachment[] = []
+      if (pending.length) {
+        setUploading(true)
+        try {
+          attachments = await uploadPending()
+        } finally {
+          setUploading(false)
+        }
+      }
       setPending([])
       setInput("")
       const files: FileUIPart[] = attachments.map((a) => ({
@@ -179,7 +186,6 @@ export function AgentSheet({
       )
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No s'ha pogut pujar l'arxiu")
-    } finally {
       setUploading(false)
     }
   }
@@ -196,7 +202,7 @@ export function AgentSheet({
             Agent CRM
           </SheetTitle>
           <SheetDescription>
-            Consulta i modifica projectes, factures, nòmines i clients. Pots
+            Consulta i modifica projectes, factures, nòmines, clients i subvencions. Pots
             adjuntar PDF o imatges.
           </SheetDescription>
         </SheetHeader>
@@ -207,7 +213,7 @@ export function AgentSheet({
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p className="flex items-start gap-2">
                   <SparklesIcon className="mt-0.5 size-4 shrink-0" />
-                  Pregunta en català. Si ets en un detall (projecte, client…),
+                  Pregunta en català. Si ets en un detall (projecte, client, subvenció…),
                   l&apos;agent el tindrà en compte. Adjunta factures amb el
                   clip.
                 </p>

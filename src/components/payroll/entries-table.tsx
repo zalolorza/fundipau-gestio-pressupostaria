@@ -35,6 +35,7 @@ type Entry = {
     percentage: number;
     costType: "direct" | "indirect";
     activityId?: string | null;
+    funderId?: string | null;
     categoryIds?: string[];
     categories?: { id: string; name: string }[];
   }[];
@@ -45,6 +46,7 @@ export function EntriesTable({
   entries,
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   categories = [],
   current,
   className,
@@ -53,6 +55,7 @@ export function EntriesTable({
   entries: Entry[];
   projectOptions: { id: string; name: string; hint?: string }[];
   activitiesByProject?: Record<string, { id: string; name: string }[]>;
+  fundersByProject?: Record<string, { id: string; name: string }[]>;
   categories?: { id: string; name: string }[];
   current: string;
   className?: string;
@@ -209,9 +212,11 @@ export function EntriesTable({
                         costType: a.costType,
                         categoryIds: a.categoryIds ?? [],
                         activityId: a.activityId ?? null,
+                        funderId: a.funderId ?? null,
                       }))}
                       projectOptions={projectOptions}
                       activitiesByProject={activitiesByProject}
+                      fundersByProject={fundersByProject}
                       categories={categories}
                       open={allocOpenId === e.id}
                       onOpenChange={(o) => setAllocOpenId(o ? e.id : null)}
@@ -220,16 +225,20 @@ export function EntriesTable({
                         variant="ghost"
                         className="h-auto flex-wrap justify-start gap-1 p-1 font-normal"
                       >
-                        {e.allocations.map((a) => {
+                        {e.allocations.map((a, i) => {
                           const activityName = a.activityId
                             ? activitiesByProject[a.projectId]?.find((x) => x.id === a.activityId)
                                 ?.name
                             : null
+                          const funderName = a.funderId
+                            ? fundersByProject[a.projectId]?.find((x) => x.id === a.funderId)?.name
+                            : null
                           return (
-                            <Badge key={a.projectId} variant="secondary">
+                            <Badge key={`${a.projectId}-${a.funderId ?? ""}-${i}`} variant="secondary">
                               {a.name} · {a.percentage} %
                               {a.costType === "indirect" ? " · ind." : ""}
                               {activityName ? ` · ${activityName}` : ""}
+                              {funderName ? ` · ${funderName}` : ""}
                               {a.categories?.length
                                 ? ` · ${a.categories.map((c) => c.name).join(", ")}`
                                 : ""}
@@ -239,6 +248,11 @@ export function EntriesTable({
                         {e.assigned < 100 && (
                           <Badge variant="outline" className="border-dashed">
                             {round2(100 - e.assigned)} % lliure
+                          </Badge>
+                        )}
+                        {e.assigned > 100 && (
+                          <Badge variant="outline">
+                            {round2(e.assigned - 100)} % de més
                           </Badge>
                         )}
                       </Button>
@@ -288,6 +302,7 @@ export function EntriesTable({
         entryIds={selectedIds}
         projectOptions={projectOptions}
         activitiesByProject={activitiesByProject}
+        fundersByProject={fundersByProject}
         categories={categories}
         onDone={clearSelection}
       />

@@ -7,20 +7,23 @@ import { PayrollsBrowser } from "@/components/payroll/payrolls-browser"
 import { Button } from "@/components/ui/button"
 import {
   activitiesByProjectMap,
+  fundersByProjectMap,
   getProjectOptions,
   listCategories,
   listPayrolls,
   listProjectActivities,
+  listProjectFunders,
 } from "@/server/queries"
 
 export const metadata: Metadata = { title: "Nòmines" }
 
 export default async function PayrollsPage() {
-  const [payrolls, projects, categories, activities] = await Promise.all([
+  const [payrolls, projects, categories, activities, funders] = await Promise.all([
     listPayrolls(),
     getProjectOptions(),
     listCategories(),
     listProjectActivities(),
+    listProjectFunders(),
   ])
   const today = new Date().toISOString().slice(0, 10)
   const projectOptions = projects.map((p) => ({
@@ -30,6 +33,7 @@ export default async function PayrollsPage() {
   }))
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }))
   const activitiesByProject = activitiesByProjectMap(activities)
+  const fundersByProject = fundersByProjectMap(funders)
   return (
     <>
       <PageHeader crumbs={[{ label: "Costos" }, { label: "Nòmines" }]} />
@@ -41,6 +45,7 @@ export default async function PayrollsPage() {
           <PayrollCreateDialog
             projectOptions={projectOptions}
             activitiesByProject={activitiesByProject}
+            fundersByProject={fundersByProject}
             categories={categoryOptions}
           >
             <Button>

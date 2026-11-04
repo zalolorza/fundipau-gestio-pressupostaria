@@ -20,3 +20,14 @@ Aquest projecte usa **shadcn/ui** (`style: radix-nova` a `components.json`). En 
 3. **No** implementis `<button>`, `<input>`, `<select>`, `<textarea>`, diàlegs o taules natius amb estils manuals quan existeixi un equivalent shadcn.
 4. Els components de domini (`src/components/app|…`) han de **compondre** primitives shadcn; no reinventar botons, camps ni overlays.
 5. Importa des de `@/components/ui/…` i `cn` des de `@/lib/utils` al codi d’aplicació. No creïs un sistema de design paral·lel.
+
+## Agent in-app: actualitza’l quan calgui
+
+Hi ha un agent conversacional a l’app (`src/lib/agent/*`: `system-prompt.ts`, `tools.ts`, i si escau `page-context.ts` / `select-model.ts`).
+
+**Sempre** que canviïs el domini, les queries/actions exposables o el comportament que l’usuari pugui demanar per xat (entitats noves, camps, regles de finançament, panells de càlcul, etc.):
+
+1. Actualitza el **system prompt** amb les regles de domini noves o canviades.
+2. Afegeix o ajusta les **tools** (`tools.ts`) perquè l’agent pugui consultar i mutar el que la UI ja permet (mateixes actions/queries del servidor).
+3. Si hi ha rutes o entitats noves a la URL, actualitza `page-context.ts`.
+4. No deixis l’agent desfasat respecte a la UI o al model de dades.

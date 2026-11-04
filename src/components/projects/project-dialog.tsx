@@ -21,7 +21,8 @@ import { DatePicker } from "@/components/ui/date-picker"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import type { Project } from "@/db/schema"
-import { round2 } from "@/lib/format"
+import { formatEuro, round2 } from "@/lib/format"
+import { funderKey, parseFunderKey, splitFunderAllocations } from "@/lib/funders"
 import { saveProject } from "@/server/actions"
 
 function hasSplit(p?: Project) {
@@ -30,17 +31,25 @@ function hasSplit(p?: Project) {
 
 export function ProjectDialog({
   project,
-  clients,
+  funders,
   clientOptions,
+  subsidyOptions = [],
   children,
 }: {
   project?: Project
-  clients?: AllocationRow[]
+  /** Repartiment mixt clients + subvencions (claus `client:` / `subsidy:`). */
+  funders?: AllocationRow[]
   clientOptions: { id: string; name: string }[]
+  subsidyOptions?: {
+    id: string
+    name: string
+    total?: number
+    available?: number
+  }[]
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  const [alloc, setAlloc] = useState<AllocationRow[]>(clients ?? [])
+  const [alloc, setAlloc] = useState<AllocationRow[]>(funders ?? [])
   const [split, setSplit] = useState(hasSplit(project))
   const [maxBudget, setMaxBudget] = useState(String(project?.maxBudget ?? ""))
   const [directBudget, setDirectBudget] = useState(
@@ -64,7 +73,41 @@ export function ProjectDialog({
     Number.isFinite(max) &&
     max >= 0 &&
     (!split || (Number.isFinite(direct) && direct >= 0 && direct <= max))
-  const canSave = !allocErr && budgetOk
+
+  const subsidyById = new Map(subsidyOptions.map((s) => [s.id, s]))
+  const subsidyCapacityErr = (() => {
+    if (!Number.isFinite(max) || max < 0) return null
+    for (const row of alloc) {
+      const parsed = parseFunderKey(row.id)
+      if (!parsed || parsed.kind !== "subsidy") continue
+      const s = subsidyById.get(parsed.id)
+      if (!s || s.available == null) continue
+      const share = round2((max * (Number(row.percentage) || 0)) / 100)
+      if (share > round2(s.available)) {
+        return `«${s.name}» només té ${formatEuro(s.available)} disponibles`
+      }
+    }
+    return null
+  })()
+
+  const canSave = !allocErr && !subsidyCapacityErr && budgetOk
+
+  const funderOptions = [
+    ...clientOptions.map((c) => ({
+      id: funderKey("client", c.id),
+      name: c.name,
+      hint: "Client",
+    })),
+    ...subsidyOptions.map((s) => ({
+      id: funderKey("subsidy", s.id),
+      name: s.name,
+      hint:
+        s.available != null
+          ? `Subvenció · ${formatEuro(s.available)} disponibles`
+          : "Subvenció",
+      disabled: s.available != null && s.available <= 0,
+    })),
+  ]
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -78,7 +121,14 @@ export function ProjectDialog({
       f.indirectBudget = ""
     }
     start(async () => {
-      const res = await saveProject(project?.id ?? null, f as never, alloc)
+      let fundersSplit: ReturnType<typeof splitFunderAllocations>
+      try {
+        fundersSplit = splitFunderAllocations(alloc)
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Finançador no vàlid")
+        return
+      }
+      const res = await saveProject(project?.id ?? null, f as never, fundersSplit)
       if (!res.ok) return void toast.error(res.error)
       toast.success(project ? "Projecte actualitzat" : "Projecte creat")
       setOpen(false)
@@ -92,7 +142,7 @@ export function ProjectDialog({
       onOpenChange={(o) => {
         setOpen(o)
         if (o) {
-          setAlloc(clients ?? [])
+          setAlloc(funders ?? [])
           resetBudgetFields()
         }
       }}
@@ -101,7 +151,9 @@ export function ProjectDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{project ? "Edita el projecte" : "Nou projecte"}</DialogTitle>
-          <DialogDescription>Dades bàsiques, pressupost i clients que el financen.</DialogDescription>
+          <DialogDescription>
+            Dades bàsiques, pressupost i finançadors (clients o subvencions).
+          </DialogDescription>
         </DialogHeader>
         <form id="project-form" onSubmit={onSubmit}>
           <FieldGroup>
@@ -201,19 +253,23 @@ export function ProjectDialog({
               </div>
             )}
             <FieldSet>
-              <FieldLegend>Clients</FieldLegend>
+              <FieldLegend>Finançadors</FieldLegend>
               <FieldDescription>
-                Repartiment del finançament (percentatge o import). Ha de sumar 100 %.
+                Clients o subvencions (percentatge o import). Ha de sumar 100 %.
+                Una subvenció no pot superar el seu total disponible.
               </FieldDescription>
               <AllocationEditor
                 value={alloc}
                 onChange={setAlloc}
-                options={clientOptions}
+                options={funderOptions}
                 mode="exact"
-                itemLabel="client"
-                emptyText="Cap client assignat"
+                itemLabel="finançador"
+                emptyText="Cap finançador assignat"
                 amountBase={Number.isFinite(max) && max > 0 ? max : undefined}
               />
+              {subsidyCapacityErr && (
+                <p className="text-sm text-destructive">{subsidyCapacityErr}</p>
+              )}
             </FieldSet>
           </FieldGroup>
         </form>

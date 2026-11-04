@@ -8,6 +8,7 @@ import { db } from "@/db"
 import { supplierInvoices } from "@/db/schema"
 import { take } from "@/lib/agent/truncate"
 import { round2 } from "@/lib/format"
+import { funderKeyFromColumns } from "@/lib/funders"
 import { invoiceCost } from "@/lib/invoice"
 import {
   assignInvoiceToProject,
@@ -20,12 +21,18 @@ import {
   saveClient,
   saveInvoice,
   saveProject,
+  saveSubsidy,
   saveSupplier,
   setInvoiceProjectActivity,
+  setInvoiceProjectFunder,
+  setPayrollEntryProjectActivity,
+  setPayrollEntryProjectFunder,
   setPayrollEntryProjects,
-  setProjectClients,
-  unassignInvoiceFromProject,
-  unassignPayrollEntries,
+  setProjectFunders,
+  setSubsidyClients,
+  setSubsidyProjects,
+  unassignInvoiceAllocation,
+  unassignPayrollAllocations,
   updatePayrollInfo,
   updateProjectActivity,
 } from "@/server/actions"
@@ -33,9 +40,12 @@ import { extractInvoiceFromPathname } from "@/server/invoice-extract-actions"
 import {
   getClient,
   getClientBilling,
+  getClientProjectLinks,
   getDashboard,
   getPayroll,
   getProject,
+  getSubsidy,
+  getSubsidyBilling,
   getSupplier,
   listCategories,
   listClients,
@@ -43,6 +53,7 @@ import {
   listPayrolls,
   listProjectActivities,
   listProjects,
+  listSubsidies,
   listSuppliers,
 } from "@/server/queries"
 
@@ -50,6 +61,12 @@ const uuid = z.string().uuid()
 const optStr = z.string().optional().nullable()
 const costType = z.enum(["direct", "indirect"]).default("direct")
 const changeScope = z.enum(["current", "future", "all"])
+const funderKeySchema = z
+  .string()
+  .regex(/^(client|subsidy):[0-9a-f-]{36}$/i)
+  .describe("client:uuid o subsidy:uuid")
+/** Opcional a les assignacions; null/omès = % del projecte. */
+const funderId = funderKeySchema.nullable().optional()
 
 function matchQ(hay: string | null | undefined, q?: string) {
   if (!q?.trim()) return true
@@ -85,6 +102,11 @@ export function createAgentTools() {
               name: c.name,
               percentage: c.percentage,
             })),
+            subsidies: p.subsidies.map((s) => ({
+              id: s.id,
+              name: s.name,
+              percentage: s.percentage,
+            })),
           })),
           limit
         )
@@ -94,7 +116,7 @@ export function createAgentTools() {
 
     getProject: tool({
       description:
-        "Detall d'un projecte: pressupost, costos, clients, activitats i resums de factures/nòmines assignades.",
+        "Detall d'un projecte: pressupost, costos, finançadors (clients i subvencions), activitats i resums de factures/nòmines assignades.",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const p = await getProject(id)
@@ -118,10 +140,16 @@ export function createAgentTools() {
               name: c.name,
               percentage: c.percentage,
             })),
+            subsidies: p.subsidies.map((s) => ({
+              id: s.id,
+              name: s.name,
+              percentage: s.percentage,
+            })),
             activities: p.activities,
             categoryTotals: p.categoryTotals,
             invoices: take(
               p.invoices.map((i) => ({
+                allocationId: i.allocationId,
                 id: i.id,
                 number: i.number,
                 supplierName: i.supplierName,
@@ -131,6 +159,8 @@ export function createAgentTools() {
                 imputed: i.imputed,
                 activityId: i.activityId,
                 activityName: i.activityName,
+                funderId: i.funderId,
+                funderName: i.funderName,
                 categories: i.categories,
               })),
               25
@@ -142,6 +172,7 @@ export function createAgentTools() {
               total: g.total,
               entries: take(
                 g.entries.map((e) => ({
+                  allocationId: e.allocationId,
                   entryId: e.entryId,
                   month: e.month,
                   amount: e.amount,
@@ -150,6 +181,8 @@ export function createAgentTools() {
                   costType: e.costType,
                   activityId: e.activityId,
                   activityName: e.activityName,
+                  funderId: e.funderId,
+                  funderName: e.funderName,
                 })),
                 24
               ),
@@ -189,10 +222,14 @@ export function createAgentTools() {
     }),
 
     getClient: tool({
-      description: "Detall d'un client i els seus projectes.",
+      description:
+        "Detall d'un client: projectes amb % efectiu (directe + via subvencions) i subvencions que finança.",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
-        const c = await getClient(id)
+        const [c, projectLinks] = await Promise.all([
+          getClient(id),
+          getClientProjectLinks(id),
+        ])
         if (!c) return { ok: false as const, error: "Client no trobat" }
         return {
           ok: true as const,
@@ -204,11 +241,22 @@ export function createAgentTools() {
             email: c.email,
             city: c.city,
             notes: c.notes,
-            projects: c.projects.map((pc) => ({
+            projects: projectLinks.map((pc) => ({
               id: pc.project.id,
               name: pc.project.name,
               percentage: pc.percentage,
               maxBudget: pc.project.maxBudget,
+            })),
+            projectsDirect: c.projects.map((pc) => ({
+              id: pc.project.id,
+              name: pc.project.name,
+              percentage: pc.percentage,
+            })),
+            subsidies: c.subsidies.map((sc) => ({
+              id: sc.subsidy.id,
+              name: sc.subsidy.name,
+              percentage: sc.percentage,
+              total: sc.subsidy.total,
             })),
           },
         }
@@ -217,13 +265,88 @@ export function createAgentTools() {
 
     getClientBilling: tool({
       description:
-        "Import facturable a un client en un període (costos dels projectes × % del client).",
+        "Import facturable a un client en un període (costos dels projectes × % efectiu del client, incloent via subvencions).",
       inputSchema: z.object({
         clientId: uuid,
         from: z.string().describe("Data inici YYYY-MM-DD"),
         to: z.string().describe("Data fi YYYY-MM-DD"),
       }),
       execute: async ({ clientId, from, to }) => getClientBilling(clientId, from, to),
+    }),
+
+    getSubsidyBilling: tool({
+      description:
+        "Costos imputats a una subvenció (sense filtre temporal): factures i nòmines dels projectes × % de la subvenció (o 100 % si el finançador de la fila és aquesta subvenció). El total és el progrés d'assignacions respecte al total de la subvenció.",
+      inputSchema: z.object({ subsidyId: uuid }),
+      execute: async ({ subsidyId }) => getSubsidyBilling(subsidyId),
+    }),
+
+    searchSubsidies: tool({
+      description:
+        "Cerca subvencions per nom (total, assignat a projectes i disponible).",
+      inputSchema: z.object({
+        q: z.string().optional(),
+        limit: z.number().int().min(1).max(30).default(15),
+      }),
+      execute: async ({ q, limit }) => {
+        const rows = await listSubsidies()
+        const filtered = rows.filter((s) => matchQ(s.name, q) || matchQ(s.notes, q))
+        const { items, truncated, total } = take(
+          filtered.map((s) => ({
+            id: s.id,
+            name: s.name,
+            total: s.total,
+            allocated: s.allocated,
+            available: s.available,
+            clients: s.clients.map((c) => ({
+              id: c.id,
+              name: c.name,
+              percentage: c.percentage,
+            })),
+            projects: s.projects.map((p) => ({
+              id: p.id,
+              name: p.name,
+              percentage: p.percentage,
+              amount: p.amount,
+            })),
+          })),
+          limit
+        )
+        return { items, truncated, total }
+      },
+    }),
+
+    getSubsidy: tool({
+      description:
+        "Detall d'una subvenció: total, assignat a projectes/disponible, clients finançadors i projectes (amb import). Per al progrés d'imputació (factures/nòmines) usa getSubsidyBilling.",
+      inputSchema: z.object({ id: uuid }),
+      execute: async ({ id }) => {
+        const s = await getSubsidy(id)
+        if (!s) return { ok: false as const, error: "Subvenció no trobada" }
+        return {
+          ok: true as const,
+          subsidy: {
+            id: s.id,
+            name: s.name,
+            total: s.total,
+            allocated: s.allocated,
+            available: s.available,
+            notes: s.notes,
+            clients: s.clients.map((c) => ({
+              id: c.id,
+              name: c.name,
+              percentage: c.percentage,
+            })),
+            projects: s.projects.map((p) => ({
+              id: p.id,
+              name: p.name,
+              percentage: p.percentage,
+              amount: p.amount,
+              maxBudget: p.maxBudget,
+            })),
+          },
+        }
+      },
     }),
 
     searchInvoices: tool({
@@ -234,7 +357,10 @@ export function createAgentTools() {
         supplierId: uuid.optional(),
         from: z.string().optional(),
         to: z.string().optional(),
-        assignment: z.enum(["completa", "pendent", "parcial"]).optional(),
+        assignment: z
+          .enum(["completa", "pendent", "parcial"])
+          .optional()
+          .describe("completa ≥100 %, pendent =0, parcial 0–100"),
         limit: z.number().int().min(1).max(30).default(15),
       }),
       execute: async ({ limit, ...filters }) => {
@@ -262,7 +388,8 @@ export function createAgentTools() {
     }),
 
     getInvoice: tool({
-      description: "Detall d'una factura per id.",
+      description:
+        "Detall d'una factura per id (inclosos allocationId i finançador de cada assignació).",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const r = await db.query.supplierInvoices.findFirst({
@@ -297,10 +424,12 @@ export function createAgentTools() {
             costType: r.costType,
             assigned,
             allocations: r.projects.map((p) => ({
+              allocationId: p.id,
               projectId: p.projectId,
               name: p.project.name,
               percentage: p.percentage,
               activityId: p.activityId,
+              funderId: funderKeyFromColumns(p.clientId, p.subsidyId),
             })),
             categories,
             categoryIds: categories.map((c) => c.id),
@@ -376,7 +505,8 @@ export function createAgentTools() {
     }),
 
     getPayroll: tool({
-      description: "Detall d'una nòmina amb entrades mensuals i assignacions.",
+      description:
+        "Detall d'una nòmina amb entrades mensuals i assignacions (allocationId, funderId).",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const p = await getPayroll(id)
@@ -387,7 +517,16 @@ export function createAgentTools() {
             month: e.month,
             amount: e.amount,
             assigned: e.assigned,
-            allocations: e.allocations,
+            allocations: e.allocations.map((a) => ({
+              allocationId: a.allocationId,
+              projectId: a.projectId,
+              name: a.name,
+              percentage: a.percentage,
+              costType: a.costType,
+              activityId: a.activityId,
+              funderId: a.funderId,
+              categoryIds: a.categoryIds,
+            })),
           })),
           36
         )
@@ -472,7 +611,7 @@ export function createAgentTools() {
 
     saveProject: tool({
       description:
-        "Crea o actualitza un projecte. Passa id=null per crear. clientAllocations opcional (han de sumar 100%).",
+        "Crea o actualitza un projecte. id=null per crear. clientAllocations i subsidyAllocations junts han de sumar 100 %. L'import de cada subvenció (maxBudget×%/100) no pot superar el disponible de la subvenció.",
       inputSchema: z.object({
         id: uuid.nullable(),
         name: z.string().min(1),
@@ -485,8 +624,11 @@ export function createAgentTools() {
         clientAllocations: z
           .array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) }))
           .optional(),
+        subsidyAllocations: z
+          .array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) }))
+          .optional(),
       }),
-      execute: async ({ id, clientAllocations, ...input }) =>
+      execute: async ({ id, clientAllocations, subsidyAllocations, ...input }) =>
         saveProject(
           id,
           {
@@ -494,18 +636,70 @@ export function createAgentTools() {
             directBudget: input.directBudget ?? null,
             indirectBudget: input.indirectBudget ?? null,
           },
-          clientAllocations
+          clientAllocations || subsidyAllocations
+            ? {
+                clients: clientAllocations ?? [],
+                subsidies: subsidyAllocations ?? [],
+              }
+            : undefined
         ),
     }),
 
-    setProjectClients: tool({
-      description: "Defineix el repartiment del projecte entre clients (suma exacta 100%).",
+    setProjectFunders: tool({
+      description:
+        "Defineix el repartiment del projecte entre clients i/o subvencions (suma exacta 100 %). No superar el total disponible de cada subvenció.",
       inputSchema: z.object({
         projectId: uuid,
+        clients: z
+          .array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) }))
+          .default([]),
+        subsidies: z
+          .array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) }))
+          .default([]),
+      }),
+      execute: async ({ projectId, clients, subsidies }) =>
+        setProjectFunders(projectId, { clients, subsidies }),
+    }),
+
+    saveSubsidy: tool({
+      description:
+        "Crea o actualitza una subvenció. id=null per crear. El total no pot ser inferior a l'assignat a projectes. clientAllocations opcional (≤100 %, no cal arribar-hi). projectAllocations: % del pressupost de cada projecte; la suma d'imports no pot superar el total.",
+      inputSchema: z.object({
+        id: uuid.nullable(),
+        name: z.string().min(1),
+        total: z.number(),
+        notes: optStr,
+        clientAllocations: z
+          .array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) }))
+          .optional(),
+        projectAllocations: z
+          .array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) }))
+          .optional(),
+      }),
+      execute: async ({ id, clientAllocations, projectAllocations, ...input }) =>
+        saveSubsidy(id, input, clientAllocations, projectAllocations),
+    }),
+
+    setSubsidyClients: tool({
+      description:
+        "Defineix els clients finançadors d'una subvenció (≤100 %; no cal arribar-hi).",
+      inputSchema: z.object({
+        subsidyId: uuid,
         allocations: z.array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) })),
       }),
-      execute: async ({ projectId, allocations }) => setProjectClients(projectId, allocations),
+      execute: async ({ subsidyId, allocations }) => setSubsidyClients(subsidyId, allocations),
     }),
+
+    setSubsidyProjects: tool({
+      description:
+        "Defineix els projectes finançats per una subvenció. Cada % és sobre el pressupost del projecte; la suma d'imports no pot superar el total. Els altres finançadors de cada projecte es reescalen per completar el 100 %.",
+      inputSchema: z.object({
+        subsidyId: uuid,
+        allocations: z.array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) })),
+      }),
+      execute: async ({ subsidyId, allocations }) => setSubsidyProjects(subsidyId, allocations),
+    }),
+
 
     saveSupplier: tool({
       description: "Crea o actualitza un proveïdor. id=null per crear.",
@@ -537,7 +731,7 @@ export function createAgentTools() {
 
     saveInvoice: tool({
       description:
-        "Crea o actualitza una factura. Passa file amb pathname del Blob si n'hi ha d'adjunt. allocations: projectes amb % (suma ≤100). id=null per crear.",
+        "Crea o actualitza una factura. Passa file amb pathname del Blob si n'hi ha d'adjunt. allocations: files projecte+% (mateix projecte permès; suma pot >100). id=null per crear.",
       inputSchema: z.object({
         id: uuid.nullable(),
         number: z.string().min(1),
@@ -569,6 +763,7 @@ export function createAgentTools() {
               id: uuid.describe("projectId"),
               percentage: z.number().gt(0).lte(100),
               activityId: uuid.nullable().optional(),
+              funderId,
             })
           )
           .default([]),
@@ -588,37 +783,55 @@ export function createAgentTools() {
     }),
 
     assignInvoiceToProject: tool({
-      description: "Assigna (o actualitza) el % d'una factura a un projecte.",
+      description:
+        "Afegeix una assignació d'una factura a un projecte (no substitueix; la suma pot superar 100 %). Retorna allocationId.",
       inputSchema: z.object({
         projectId: uuid,
         invoiceId: uuid,
         percentage: z.number().gt(0).lte(100),
         activityId: uuid.nullable().optional(),
+        funderId,
       }),
       execute: async (args) =>
-        assignInvoiceToProject(args.projectId, args.invoiceId, args.percentage, args.activityId),
+        assignInvoiceToProject(
+          args.projectId,
+          args.invoiceId,
+          args.percentage,
+          args.activityId,
+          args.funderId
+        ),
     }),
 
-    unassignInvoiceFromProject: tool({
-      description: "Treu l'assignació d'una factura a un projecte.",
-      inputSchema: z.object({ projectId: uuid, invoiceId: uuid }),
-      execute: async ({ projectId, invoiceId }) =>
-        unassignInvoiceFromProject(projectId, invoiceId),
+    unassignInvoiceAllocation: tool({
+      description: "Elimina una assignació concreta de factura (per allocationId).",
+      inputSchema: z.object({ allocationId: uuid }),
+      execute: async ({ allocationId }) => unassignInvoiceAllocation(allocationId),
     }),
 
     setInvoiceProjectActivity: tool({
-      description: "Canvia l'activitat d'una factura ja assignada a un projecte (null per treure-la).",
+      description: "Canvia l'activitat d'una assignació de factura (null per treure-la).",
       inputSchema: z.object({
-        projectId: uuid,
-        invoiceId: uuid,
+        allocationId: uuid,
         activityId: uuid.nullable(),
       }),
-      execute: async ({ projectId, invoiceId, activityId }) =>
-        setInvoiceProjectActivity(projectId, invoiceId, activityId),
+      execute: async ({ allocationId, activityId }) =>
+        setInvoiceProjectActivity(allocationId, activityId),
+    }),
+
+    setInvoiceProjectFunder: tool({
+      description:
+        "Canvia el finançador d'una assignació de factura (client:uuid / subsidy:uuid; null = % del projecte).",
+      inputSchema: z.object({
+        allocationId: uuid,
+        funderId: funderKeySchema.nullable(),
+      }),
+      execute: async ({ allocationId, funderId: key }) =>
+        setInvoiceProjectFunder(allocationId, key),
     }),
 
     createPayroll: tool({
-      description: "Crea una nòmina amb entrades mensuals i assignacions opcionals a projectes.",
+      description:
+        "Crea una nòmina amb entrades mensuals i assignacions opcionals (mateix projecte permès; suma pot >100 %).",
       inputSchema: z.object({
         personName: z.string().min(1),
         personTaxId: optStr,
@@ -635,6 +848,7 @@ export function createAgentTools() {
               costType: costType.optional(),
               categoryIds: z.array(uuid).optional(),
               activityId: uuid.nullable().optional(),
+              funderId,
             })
           )
           .default([]),
@@ -669,7 +883,8 @@ export function createAgentTools() {
     }),
 
     assignPayrollToProject: tool({
-      description: "Assigna una nòmina a un projecte per a un rang de mesos.",
+      description:
+        "Afegeix assignacions d'una nòmina a un projecte per a un rang de mesos (no substitueix; suma pot >100 %).",
       inputSchema: z.object({
         projectId: uuid,
         payrollId: uuid,
@@ -679,6 +894,7 @@ export function createAgentTools() {
         costType: costType.optional(),
         categoryIds: z.array(uuid).optional(),
         activityId: uuid.nullable().optional(),
+        funderId,
       }),
       execute: async (a) =>
         assignPayrollToProject(
@@ -689,22 +905,42 @@ export function createAgentTools() {
           a.percentage,
           a.costType,
           a.categoryIds ?? [],
-          a.activityId
+          a.activityId,
+          a.funderId
         ),
     }),
 
-    unassignPayrollEntries: tool({
-      description: "Treu assignacions de partides de nòmina d'un projecte.",
+    unassignPayrollAllocations: tool({
+      description: "Elimina assignacions concretes de nòmina (per allocationId).",
       inputSchema: z.object({
-        projectId: uuid,
-        entryIds: z.array(uuid).min(1),
+        allocationIds: z.array(uuid).min(1),
       }),
-      execute: async ({ projectId, entryIds }) => unassignPayrollEntries(projectId, entryIds),
+      execute: async ({ allocationIds }) => unassignPayrollAllocations(allocationIds),
+    }),
+
+    setPayrollEntryProjectActivity: tool({
+      description: "Canvia l'activitat d'una assignació de nòmina (per allocationId).",
+      inputSchema: z.object({
+        allocationId: uuid,
+        activityId: uuid.nullable(),
+      }),
+      execute: async ({ allocationId, activityId }) =>
+        setPayrollEntryProjectActivity(allocationId, activityId),
+    }),
+
+    setPayrollEntryProjectFunder: tool({
+      description: "Canvia el finançador d'una assignació de nòmina (null = % del projecte).",
+      inputSchema: z.object({
+        allocationId: uuid,
+        funderId: funderKeySchema.nullable(),
+      }),
+      execute: async ({ allocationId, funderId: key }) =>
+        setPayrollEntryProjectFunder(allocationId, key),
     }),
 
     setPayrollEntryProjects: tool({
       description:
-        "Defineix les assignacions a projectes d'una nòmina per a un mes (i abast current/future/all).",
+        "Substitueix les assignacions a projectes d'una nòmina per a un mes (abast current/future/all). Projectes repetibles; suma pot >100 %.",
       inputSchema: z.object({
         payrollId: uuid,
         referenceMonth: z.string(),
@@ -716,6 +952,7 @@ export function createAgentTools() {
             costType: costType.optional(),
             categoryIds: z.array(uuid).optional(),
             activityId: uuid.nullable().optional(),
+            funderId,
           })
         ),
       }),

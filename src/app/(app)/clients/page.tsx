@@ -34,13 +34,14 @@ export default async function ClientsPage() {
                 <TableHead>NIF</TableHead>
                 <TableHead>Població</TableHead>
                 <TableHead>Projectes</TableHead>
+                <TableHead>Subvencions</TableHead>
                 <TableHead className="pr-4">Notes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {clients.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                     Encara no hi ha cap client.
                   </TableCell>
                 </TableRow>
@@ -59,6 +60,15 @@ export default async function ClientsPage() {
                       {c.projects.map((p) => (
                         <Badge key={p.projectId} variant="secondary">
                           {p.project.name} · {p.percentage} %
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex max-w-md flex-wrap gap-1">
+                      {c.subsidies.map((s) => (
+                        <Badge key={s.subsidyId} variant="outline">
+                          {s.subsidy.name} · {s.percentage} %
                         </Badge>
                       ))}
                     </div>

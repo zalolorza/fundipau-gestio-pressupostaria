@@ -17,18 +17,30 @@ import { deleteProject } from "@/server/actions"
 
 export function ProjectActions({
   project,
-  clients,
+  funders,
   clientOptions,
+  subsidyOptions,
   exportData,
 }: {
   project: Project
-  clients: AllocationRow[]
+  funders: AllocationRow[]
   clientOptions: { id: string; name: string }[]
+  subsidyOptions: {
+    id: string
+    name: string
+    total?: number
+    available?: number
+  }[]
   exportData: ProjectExportData
 }) {
   return (
     <>
-      <ProjectDialog project={project} clients={clients} clientOptions={clientOptions}>
+      <ProjectDialog
+        project={project}
+        funders={funders}
+        clientOptions={clientOptions}
+        subsidyOptions={subsidyOptions}
+      >
         <Button variant="outline">
           <PencilIcon /> Edita
         </Button>

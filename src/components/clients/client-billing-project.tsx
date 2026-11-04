@@ -29,14 +29,34 @@ export function ClientBillingProjectPanel({
   clientName,
   from,
   to,
+  shareColumnLabel = "% client",
+  amountColumnLabel = "A facturar",
+  emptyLinesMessage = "Cap cost en aquest període.",
+  emptyCategoryMessage = "Cap cost amb categories en aquest període.",
+  emptyActivityMessage = "Cap cost amb activitats en aquest període.",
+  filename,
+  getSheets,
 }: {
   group: ClientBillingProject;
   clientName: string;
-  from: string;
-  to: string;
+  from?: string;
+  to?: string;
+  shareColumnLabel?: string;
+  amountColumnLabel?: string;
+  emptyLinesMessage?: string;
+  emptyCategoryMessage?: string;
+  emptyActivityMessage?: string;
+  filename?: string;
+  getSheets?: () => ReturnType<typeof buildClientBillingSheets>;
 }) {
   const showActivityTab =
     group.hasActivities && group.activityTotals.some((row) => row.id != null);
+  const xlsxFilename =
+    filename ??
+    clientBillingFilename(clientName, from!, to!, group.project.name);
+  const xlsxSheets =
+    getSheets ??
+    (() => buildClientBillingSheets([group], { withProjectColumn: false }));
 
   return (
     <details className="group rounded-lg border" open={group.total > 0}>
@@ -59,7 +79,7 @@ export function ClientBillingProjectPanel({
 
       {group.lines.length === 0 ? (
         <p className="border-t p-3 text-sm text-muted-foreground">
-          Cap cost en aquest període.
+          {emptyLinesMessage}
         </p>
       ) : (
         <Tabs defaultValue="partida" className="border-t">
@@ -73,15 +93,8 @@ export function ClientBillingProjectPanel({
             </TabsList>
             <DownloadXlsxButton
               size="sm"
-              filename={clientBillingFilename(
-                clientName,
-                from,
-                to,
-                group.project.name,
-              )}
-              getSheets={() =>
-                buildClientBillingSheets([group], { withProjectColumn: false })
-              }
+              filename={xlsxFilename}
+              getSheets={xlsxSheets}
             />
           </div>
           <TabsContent value="partida">
@@ -92,8 +105,8 @@ export function ClientBillingProjectPanel({
                   <TableHead>Concepte</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                   <TableHead className="text-right">% projecte</TableHead>
-                  <TableHead className="text-right">% client</TableHead>
-                  <TableHead className="pr-4 text-right">A facturar</TableHead>
+                  <TableHead className="text-right">{shareColumnLabel}</TableHead>
+                  <TableHead className="pr-4 text-right">{amountColumnLabel}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -140,11 +153,19 @@ export function ClientBillingProjectPanel({
           </TabsContent>
           <TabsContent value="tipus" className="space-y-0">
             <CostsByCostType costs={group.costs} />
-            <CostsByCategory totals={group.categoryTotals} />
+            <CostsByCategory
+              totals={group.categoryTotals}
+              amountColumnLabel={amountColumnLabel}
+              emptyMessage={emptyCategoryMessage}
+            />
           </TabsContent>
           {showActivityTab && (
             <TabsContent value="activitat">
-              <CostsByActivity totals={group.activityTotals} />
+              <CostsByActivity
+                totals={group.activityTotals}
+                amountColumnLabel={amountColumnLabel}
+                emptyMessage={emptyActivityMessage}
+              />
             </TabsContent>
           )}
         </Tabs>
@@ -222,15 +243,19 @@ function CostsByCostType({ costs }: { costs: ClientBillingProject["costs"] }) {
 
 function CostsByCategory({
   totals,
+  amountColumnLabel = "A facturar",
+  emptyMessage = "Cap cost amb categories en aquest període.",
 }: {
   totals: ClientBillingProject["categoryTotals"];
+  amountColumnLabel?: string;
+  emptyMessage?: string;
 }) {
   if (totals.length === 0) {
     return (
       <div className="mt-4">
         <p className="border-b px-4 py-2 text-sm font-medium">Per categoria</p>
         <p className="px-4 py-3 text-sm text-muted-foreground">
-          Cap cost amb categories en aquest període.
+          {emptyMessage}
         </p>
       </div>
     );
@@ -241,14 +266,14 @@ function CostsByCategory({
       <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
         <p className="text-sm font-medium">Per categoria</p>
         <p className="text-xs text-muted-foreground">
-          La suma pot superar el total a facturar.
+          La suma pot superar el total.
         </p>
       </div>
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="pl-4">Categoria</TableHead>
-            <TableHead className="pr-4 text-right">A facturar</TableHead>
+            <TableHead className="pr-4 text-right">{amountColumnLabel}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -275,15 +300,19 @@ function CostsByCategory({
 
 function CostsByActivity({
   totals,
+  amountColumnLabel = "A facturar",
+  emptyMessage = "Cap cost amb activitats en aquest període.",
 }: {
   totals: ClientBillingProject["activityTotals"];
+  amountColumnLabel?: string;
+  emptyMessage?: string;
 }) {
   if (totals.length === 0) {
     return (
       <div>
         <p className="border-b px-4 py-2 text-sm font-medium">Per activitat</p>
         <p className="px-4 py-3 text-sm text-muted-foreground">
-          Cap cost amb activitats en aquest període.
+          {emptyMessage}
         </p>
       </div>
     );
@@ -296,7 +325,7 @@ function CostsByActivity({
         <TableHeader>
           <TableRow>
             <TableHead className="pl-4">Activitat</TableHead>
-            <TableHead className="pr-4 text-right">A facturar</TableHead>
+            <TableHead className="pr-4 text-right">{amountColumnLabel}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

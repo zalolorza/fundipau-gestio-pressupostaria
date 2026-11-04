@@ -1,6 +1,7 @@
 export type AgentEntityType =
   | "project"
   | "client"
+  | "subsidy"
   | "invoice"
   | "supplier"
   | "payroll"
@@ -15,6 +16,7 @@ export type AgentPageContext = {
 const DETAIL: { prefix: string; entityType: AgentEntityType }[] = [
   { prefix: "/projectes/", entityType: "project" },
   { prefix: "/clients/", entityType: "client" },
+  { prefix: "/subvencions/", entityType: "subsidy" },
   { prefix: "/factures/", entityType: "invoice" },
   { prefix: "/proveidors/", entityType: "supplier" },
   { prefix: "/nomines/", entityType: "payroll" },

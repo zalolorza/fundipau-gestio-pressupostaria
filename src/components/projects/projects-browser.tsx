@@ -26,7 +26,8 @@ function matchesQuery(p: ProjectListItem, q: string) {
   const needle = q.trim().toLowerCase();
   if (!needle) return true;
   if (p.name.toLowerCase().includes(needle)) return true;
-  return p.clients.some((c) => c.name.toLowerCase().includes(needle));
+  if (p.clients.some((c) => c.name.toLowerCase().includes(needle))) return true;
+  return p.subsidies.some((s) => s.name.toLowerCase().includes(needle));
 }
 
 function matchesFiltre(p: ProjectListItem, filtre: ProjectBudgetFilter | "") {
@@ -64,7 +65,7 @@ export function ProjectsBrowser({ projects }: { projects: ProjectListItem[] }) {
           <TableHeader>
             <TableRow>
               <TableHead className="pl-4">Projecte</TableHead>
-              <TableHead>Clients</TableHead>
+              <TableHead>Finançadors</TableHead>
               <TableHead>Període</TableHead>
               <TableHead className="text-right">Pressupost</TableHead>
               <TableHead className="text-right">Cost imputat</TableHead>
@@ -101,12 +102,17 @@ export function ProjectsBrowser({ projects }: { projects: ProjectListItem[] }) {
                   </TableCell>
                   <TableCell>
                     <div className="flex max-w-xs flex-wrap gap-1">
-                      {p.clients.length === 0 && (
+                      {p.clients.length === 0 && p.subsidies.length === 0 && (
                         <span className="text-muted-foreground">—</span>
                       )}
                       {p.clients.map((c) => (
-                        <Badge key={c.id} variant="secondary">
+                        <Badge key={`c-${c.id}`} variant="secondary">
                           {c.name} · {c.percentage} %
+                        </Badge>
+                      ))}
+                      {p.subsidies.map((s) => (
+                        <Badge key={`s-${s.id}`} variant="outline">
+                          {s.name} · {s.percentage} %
                         </Badge>
                       ))}
                     </div>

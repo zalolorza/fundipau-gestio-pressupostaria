@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/card";
 import { formatPct } from "@/lib/format";
 import { addMonths, currentMonth } from "@/lib/months";
-import { getClient, getClientBilling } from "@/server/queries";
+import { getClient, getClientBilling, getClientProjectLinks } from "@/server/queries";
 
 export async function generateMetadata({
   params,
@@ -40,7 +40,10 @@ export default async function ClientPage({
   const { id } = await params;
   const sp = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
-  const client = await getClient(id);
+  const [client, projectLinks] = await Promise.all([
+    getClient(id),
+    getClientProjectLinks(id),
+  ]);
   if (!client) notFound();
 
   const now = currentMonth();
@@ -73,7 +76,7 @@ export default async function ClientPage({
           <ClientActions client={client} />
         </PageTitle>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader>
               <CardTitle>Dades fiscals</CardTitle>
@@ -103,23 +106,48 @@ export default async function ClientPage({
             <CardHeader>
               <CardTitle>Projectes</CardTitle>
               <CardDescription>
-                Percentatge que finança d&apos;aquest client.
+                Percentatge efectiu (directe i via subvencions).
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
-              {client.projects.length === 0 && (
+              {projectLinks.length === 0 && (
                 <p className="text-sm text-muted-foreground">
                   Cap projecte assignat.
                 </p>
               )}
-              {client.projects.map((p) => (
+              {projectLinks.map((p) => (
                 <Link
-                  key={p.projectId}
-                  href={`/projectes/${p.projectId}`}
+                  key={p.project.id}
+                  href={`/projectes/${p.project.id}`}
                   className="flex items-center justify-between gap-2 rounded-lg border p-2 text-sm hover:bg-muted"
                 >
                   <span className="truncate">{p.project.name}</span>
                   <Badge variant="secondary">{formatPct(p.percentage)}</Badge>
+                </Link>
+              ))}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Subvencions</CardTitle>
+              <CardDescription>
+                Percentatge que finança d&apos;aquest client.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {client.subsidies.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Cap subvenció assignada.
+                </p>
+              )}
+              {client.subsidies.map((s) => (
+                <Link
+                  key={s.subsidyId}
+                  href={`/subvencions/${s.subsidyId}`}
+                  className="flex items-center justify-between gap-2 rounded-lg border p-2 text-sm hover:bg-muted"
+                >
+                  <span className="truncate">{s.subsidy.name}</span>
+                  <Badge variant="secondary">{formatPct(s.percentage)}</Badge>
                 </Link>
               ))}
             </CardContent>
@@ -131,7 +159,8 @@ export default async function ClientPage({
             <h2 className="text-xl font-medium">Factures a emetre</h2>
             <p className="text-sm text-muted-foreground">
               Costos imputats als projectes del client en el període,
-              multiplicats pel seu percentatge de finançament.
+              multiplicats pel seu percentatge efectiu (directe i via
+              subvencions).
             </p>
           </div>
           <div className="space-y-6">

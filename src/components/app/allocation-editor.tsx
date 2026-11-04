@@ -27,8 +27,10 @@ export type AllocationRow = {
   percentage: number;
   costType?: CostType;
   categoryIds?: string[];
-  /** Activitat del projecte (només assignacions de factura). */
+  /** Activitat del projecte (assignacions factura/nòmina). */
   activityId?: string | null;
+  /** Finançador opcional (`client:` / `subsidy:`). */
+  funderId?: string | null;
 };
 export type AllocationOption = {
   id: string;
@@ -37,8 +39,10 @@ export type AllocationOption = {
   disabled?: boolean;
 };
 export type AllocationActivityOption = { id: string; name: string };
+export type AllocationFunderOption = { id: string; name: string };
 
 const ACTIVITY_NONE = "__none__";
+const FUNDER_NONE = "__none__";
 
 export function allocationSum(rows: AllocationRow[]) {
   return round2(rows.reduce((s, r) => s + (Number(r.percentage) || 0), 0));
@@ -47,16 +51,23 @@ export function allocationSum(rows: AllocationRow[]) {
 export function allocationError(
   rows: AllocationRow[],
   mode: "exact" | "max",
+  opts?: { allowDuplicateIds?: boolean; allowOver100?: boolean },
 ): string | null {
   if (rows.some((r) => !r.id)) return "Tria un element a cada fila";
-  if (new Set(rows.map((r) => r.id)).size !== rows.length)
+  if (
+    !opts?.allowDuplicateIds &&
+    new Set(rows.map((r) => r.id)).size !== rows.length
+  )
     return "Hi ha elements repetits";
   if (rows.some((r) => !(Number(r.percentage) > 0)))
     return "Tots els percentatges han de ser més grans que 0";
+  if (rows.some((r) => Number(r.percentage) > 100))
+    return "Cada percentatge ha de ser com a màxim 100 %";
   const sum = allocationSum(rows);
   if (mode === "exact" && rows.length > 0 && sum !== 100)
     return `Ha de sumar 100 % (ara ${sum} %)`;
-  if (sum > 100) return `No pot superar el 100 % (ara ${sum} %)`;
+  if (!opts?.allowOver100 && sum > 100)
+    return `No pot superar el 100 % (ara ${sum} %)`;
   return null;
 }
 
@@ -71,6 +82,10 @@ export function AllocationEditor({
   categories,
   onCatalogChange,
   activitiesByProject,
+  fundersByProject,
+  allowDuplicateIds = false,
+  /** Permet que la suma de % superi el 100 (factures / nòmines). */
+  allowOver100 = false,
   /** Base (€) per mostrar i editar l'import a partir del %. Si hi és, ambdós inputs es sincronitzen. */
   amountBase,
 }: {
@@ -85,16 +100,25 @@ export function AllocationEditor({
   /** Catàleg de categories; si hi és, mostra el picker per fila (nòmines). */
   categories?: CategoryRef[];
   onCatalogChange?: (next: CategoryRef[]) => void;
-  /** Activitats per projecte; si hi és, mostra el selector d'activitat (factures). */
+  /** Activitats per projecte; si hi és, mostra el selector d'activitat. */
   activitiesByProject?: Record<string, AllocationActivityOption[]>;
+  /** Finançadors per projecte; si hi és, mostra el selector de finançador. */
+  fundersByProject?: Record<string, AllocationFunderOption[]>;
+  /** Permet el mateix id (projecte) en diverses files. */
+  allowDuplicateIds?: boolean;
+  allowOver100?: boolean;
   amountBase?: number;
 }) {
   const withCategories = !!categories;
   const withActivities = !!activitiesByProject;
+  const withFunders = !!fundersByProject;
   const withAmount =
     amountBase != null && Number.isFinite(amountBase) && amountBase > 0;
   const sum = allocationSum(value);
-  const error = allocationError(value, mode);
+  const error = allocationError(value, mode, {
+    allowDuplicateIds,
+    allowOver100,
+  });
   const used = new Set(value.map((r) => r.id));
   /** Draft of the field being edited so typing/spinners stay smooth while the other updates. */
   const [edit, setEdit] = useState<{
@@ -109,12 +133,15 @@ export function AllocationEditor({
   const amountOf = (percentage: number) =>
     withAmount ? round2(((Number(percentage) || 0) * amountBase!) / 100) : 0;
 
-  /** Màxim % per a la fila sense superar el 100 % total. */
+  /** Màxim % per fila (i, si cal, sense superar el 100 % total). */
   const maxPercentageFor = (i: number) => {
+    if (allowOver100) return 100;
     const others = value.reduce(
       (s, r, idx) =>
         s +
-        (idx === i || !Number.isFinite(r.percentage) ? 0 : Number(r.percentage)),
+        (idx === i || !Number.isFinite(r.percentage)
+          ? 0
+          : Number(r.percentage)),
       0,
     );
     return round2(Math.max(0, 100 - others));
@@ -152,6 +179,8 @@ export function AllocationEditor({
     onChange(rows);
   };
 
+  const canAddMore = allowDuplicateIds || value.length < options.length;
+
   return (
     <div className="space-y-2">
       {value.length === 0 && (
@@ -163,13 +192,16 @@ export function AllocationEditor({
         const projectActivities = row.id
           ? (activitiesByProject?.[row.id] ?? [])
           : [];
+        const projectFunders = row.id ? (fundersByProject?.[row.id] ?? []) : [];
         const dense =
-          withCostType || withCategories || withActivities || withAmount;
+          withCostType ||
+          withCategories ||
+          withActivities ||
+          withFunders ||
+          withAmount;
         const amount = amountOf(row.percentage);
         const maxPct = maxPercentageFor(i);
-        const maxAmount = withAmount
-          ? round2((maxPct * amountBase!) / 100)
-          : 0;
+        const maxAmount = withAmount ? round2((maxPct * amountBase!) / 100) : 0;
         return (
           <div key={i}>
             {i > 0 && (
@@ -189,6 +221,7 @@ export function AllocationEditor({
                   update(i, {
                     id,
                     ...(withActivities ? { activityId: null } : {}),
+                    ...(withFunders ? { funderId: null } : {}),
                   })
                 }
               >
@@ -201,7 +234,10 @@ export function AllocationEditor({
                       key={o.id}
                       value={o.id}
                       disabled={
-                        o.disabled || (used.has(o.id) && o.id !== row.id)
+                        o.disabled ||
+                        (!allowDuplicateIds &&
+                          used.has(o.id) &&
+                          o.id !== row.id)
                       }
                     >
                       {o.name}
@@ -236,6 +272,32 @@ export function AllocationEditor({
                     {projectActivities.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {withFunders && (
+                <Select
+                  value={row.funderId ?? FUNDER_NONE}
+                  onValueChange={(v) =>
+                    update(i, { funderId: v === FUNDER_NONE ? null : v })
+                  }
+                  disabled={!row.id || projectFunders.length === 0}
+                >
+                  <SelectTrigger
+                    className="w-full sm:w-44 shrink-0"
+                    aria-label="Finançador"
+                  >
+                    <SelectValue placeholder="Finançament dividit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FUNDER_NONE}>
+                      Finançament dividit
+                    </SelectItem>
+                    {projectFunders.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -297,8 +359,7 @@ export function AllocationEditor({
                   onChange={(e) => {
                     const raw = e.target.value;
                     const n = e.target.valueAsNumber;
-                    const capped =
-                      !Number.isNaN(n) && n > maxPct ? maxPct : n;
+                    const capped = !Number.isNaN(n) && n > maxPct ? maxPct : n;
                     setEdit({
                       i,
                       field: "pct",
@@ -389,10 +450,11 @@ export function AllocationEditor({
                   ...(withCostType ? { costType: "direct" as const } : {}),
                   ...(withCategories ? { categoryIds: [] } : {}),
                   ...(withActivities ? { activityId: null } : {}),
+                  ...(withFunders ? { funderId: null } : {}),
                 },
               ])
             }
-            disabled={value.length >= options.length}
+            disabled={!canAddMore}
           >
             <PlusIcon /> Afegeix {itemLabel}
           </Button>
@@ -410,14 +472,15 @@ export function AllocationEditor({
         <div className="flex items-center gap-2 text-sm">
           {error ? (
             <span className="text-destructive">{error}</span>
-          ) : (
-            mode === "max" &&
-            sum < 100 && (
-              <span className="text-muted-foreground">
-                {round2(100 - sum)} % sense assignar
-              </span>
-            )
-          )}
+          ) : mode === "max" && sum < 100 ? (
+            <span className="text-muted-foreground">
+              {round2(100 - sum)} % sense assignar
+            </span>
+          ) : mode === "max" && allowOver100 && sum > 100 ? (
+            <span className="text-muted-foreground">
+              {round2(sum - 100)} % per sobre del 100
+            </span>
+          ) : null}
           <Badge variant={error ? "destructive" : "secondary"}>
             Total {sum} %
           </Badge>

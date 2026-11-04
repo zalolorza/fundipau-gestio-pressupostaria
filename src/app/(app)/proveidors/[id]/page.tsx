@@ -25,12 +25,14 @@ import { getDefaultVatDeductibleRate } from "@/lib/app-settings"
 import { formatDate, formatEuro, round2 } from "@/lib/format"
 import {
   activitiesByProjectMap,
+  fundersByProjectMap,
   getProjectOptions,
   getSupplier,
   getSupplierOptions,
   listCategories,
   listInvoices,
   listProjectActivities,
+  listProjectFunders,
 } from "@/server/queries"
 
 const isUuid = (id: string) => /^[0-9a-f-]{36}$/i.test(id)
@@ -52,6 +54,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
     supplierOptions,
     categories,
     activities,
+    funders,
     defaultVatDeductibleRate,
   ] = await Promise.all([
     getSupplier(id),
@@ -60,6 +63,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
     getSupplierOptions(),
     listCategories(),
     listProjectActivities(),
+    listProjectFunders(),
     getDefaultVatDeductibleRate(),
   ])
   if (!supplier) notFound()
@@ -72,6 +76,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
   }))
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }))
   const activitiesByProject = activitiesByProjectMap(activities)
+  const fundersByProject = fundersByProjectMap(funders)
   const sum = (k: "baseAmount" | "vatAmount" | "irpfAmount" | "total" | "cost") =>
     round2(invoices.reduce((s, i) => s + i[k], 0))
   const thisYear = today.slice(0, 4)
@@ -131,6 +136,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
               <InvoiceDialog
                 projectOptions={projectOptions}
                 activitiesByProject={activitiesByProject}
+                fundersByProject={fundersByProject}
                 suppliers={supplierOptions}
                 categories={categoryOptions}
                 defaultSupplierId={supplier.id}
@@ -183,11 +189,13 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                       id: a.projectId,
                       percentage: a.percentage,
                       activityId: a.activityId,
+                      funderId: a.funderId ?? null,
                     }))}
                     categoryIds={categoryIds}
                     categories={categoryOptions}
                     projectOptions={projectOptions}
                     activitiesByProject={activitiesByProject}
+                    fundersByProject={fundersByProject}
                     suppliers={supplierOptions}
                   >
                     <TableCell className="pl-4 whitespace-nowrap">{formatDate(inv.issueDate)}</TableCell>
@@ -213,6 +221,9 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                         ))}
                         {assigned < 100 && (
                           <Badge variant="destructive">{round2(100 - assigned)} % sense assignar</Badge>
+                        )}
+                        {assigned > 100 && (
+                          <Badge variant="outline">{round2(assigned - 100)} % de més</Badge>
                         )}
                       </div>
                     </TableCell>

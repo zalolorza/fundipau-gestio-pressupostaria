@@ -37,16 +37,20 @@ import { getDefaultVatDeductibleRate } from "@/lib/app-settings";
 import { COST_TYPE_LABELS } from "@/lib/cost-type";
 import { formatDate, formatEuro, formatPct, round2 } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { funderKey } from "@/lib/funders";
 import {
   activitiesByProjectMap,
+  fundersByProjectMap,
   getAssignableInvoices,
   getClientOptions,
   getPayrollOptions,
   getProject,
   getProjectOptions,
+  getSubsidyOptions,
   getSupplierOptions,
   listCategories,
   listProjectActivities,
+  listProjectFunders,
   type CategoryTotal,
   type ProjectCosts,
 } from "@/server/queries";
@@ -68,22 +72,26 @@ export default async function ProjectPage({
   const [
     project,
     clientOptions,
+    subsidyOptions,
     invoices,
     payrolls,
     projects,
     suppliers,
     categories,
     allActivities,
+    allFunders,
     defaultVatDeductibleRate,
   ] = await Promise.all([
     getProject(id),
     getClientOptions(),
+    getSubsidyOptions(id),
     getAssignableInvoices(),
     getPayrollOptions(),
     getProjectOptions(),
     getSupplierOptions(),
     listCategories(),
     listProjectActivities(),
+    listProjectFunders(),
     getDefaultVatDeductibleRate(),
   ]);
   if (!project) notFound();
@@ -95,13 +103,20 @@ export default async function ProjectPage({
           indirect: project.indirectBudget,
         }
       : null;
-  const clientRows = project.clients.map((c) => ({
-    id: c.id,
-    percentage: c.percentage,
-  }));
-  const current = Object.fromEntries(
-    project.invoices.map((i) => [i.id, i.percentage]),
-  );
+  const funderRows = [
+    ...project.clients.map((c) => ({
+      id: funderKey("client", c.id),
+      percentage: c.percentage,
+    })),
+    ...project.subsidies.map((s) => ({
+      id: funderKey("subsidy", s.id),
+      percentage: s.percentage,
+    })),
+  ];
+  const current = project.invoices.reduce<Record<string, number>>((acc, i) => {
+    acc[i.id] = round2((acc[i.id] ?? 0) + i.percentage)
+    return acc
+  }, {})
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const activityOptions = project.activities.map((a) => ({
     id: a.id,
@@ -115,11 +130,14 @@ export default async function ProjectPage({
     progress: a.progress,
   }));
   const activitiesByProject = activitiesByProjectMap(allActivities);
+  const fundersByProject = fundersByProjectMap(allFunders);
   const {
     clients: _c,
+    subsidies: _s,
     invoices: _i,
     payroll: _p,
     activities: _a,
+    funders: _f,
     costs: _co,
     categoryTotals: _ct,
     progress: _pr,
@@ -158,8 +176,9 @@ export default async function ProjectPage({
         >
           <ProjectActions
             project={projectRow}
-            clients={clientRows}
+            funders={funderRows}
             clientOptions={clientOptions}
+            subsidyOptions={subsidyOptions}
             exportData={{
               name: project.name,
               maxBudget: project.maxBudget,
@@ -239,17 +258,20 @@ export default async function ProjectPage({
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Clients</CardTitle>
-                <CardDescription>Repartiment del finançament</CardDescription>
+                <CardTitle>Finançadors</CardTitle>
+                <CardDescription>
+                  Clients i subvencions que financen el projecte
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {project.clients.length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    Encara no hi ha cap client assignat.
-                  </p>
-                )}
+                {project.clients.length === 0 &&
+                  project.subsidies.length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      Encara no hi ha cap finançador assignat.
+                    </p>
+                  )}
                 {project.clients.map((c) => (
-                  <div key={c.id} className="space-y-1">
+                  <div key={`c-${c.id}`} className="space-y-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <Link
                         href={`/clients/${c.id}`}
@@ -258,6 +280,7 @@ export default async function ProjectPage({
                         {c.name}
                       </Link>
                       <div className="flex items-center gap-2">
+                        <Badge variant="outline">Client</Badge>
                         <Badge variant="secondary">
                           {formatPct(c.percentage)}
                         </Badge>
@@ -268,6 +291,31 @@ export default async function ProjectPage({
                     </div>
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {formatEuro((project.costs.total * c.percentage) / 100)}{" "}
+                      imputats
+                    </p>
+                  </div>
+                ))}
+                {project.subsidies.map((s) => (
+                  <div key={`s-${s.id}`} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <Link
+                        href={`/subvencions/${s.id}`}
+                        className="truncate hover:text-primary hover:underline"
+                      >
+                        {s.name}
+                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">Subvenció</Badge>
+                        <Badge variant="secondary">
+                          {formatPct(s.percentage)}
+                        </Badge>
+                        <Badge variant="tertiary">
+                          {formatEuro((project.maxBudget * s.percentage) / 100)}
+                        </Badge>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {formatEuro((project.costs.total * s.percentage) / 100)}{" "}
                       imputats
                     </p>
                   </div>
@@ -307,9 +355,11 @@ export default async function ProjectPage({
                   current={current}
                   projectOptions={projectOptions}
                   activitiesByProject={activitiesByProject}
+                  fundersByProject={fundersByProject}
                   suppliers={suppliers}
                   categories={categoryOptions}
                   activities={activityOptions}
+                  funders={project.funders}
                   defaultVatDeductibleRate={defaultVatDeductibleRate}
                 />
                 <AssignPayrollDialog
@@ -317,6 +367,7 @@ export default async function ProjectPage({
                   payrolls={payrolls}
                   categories={categoryOptions}
                   activities={activityOptions}
+                  funders={project.funders}
                   defaultFrom={project.openedAt}
                   defaultTo={project.closedAt}
                 >
@@ -343,9 +394,11 @@ export default async function ProjectPage({
                 invoices={project.invoices}
                 projectOptions={projectOptions}
                 activitiesByProject={activitiesByProject}
+                fundersByProject={fundersByProject}
                 suppliers={suppliers}
                 categories={categoryOptions}
                 activities={activityOptions}
+                funders={project.funders}
               />
             </TabsContent>
             <TabsContent value="nomines">
@@ -356,6 +409,7 @@ export default async function ProjectPage({
                 payrolls={payrolls}
                 categories={categoryOptions}
                 activities={activityOptions}
+                funders={project.funders}
                 defaultFrom={project.openedAt}
                 defaultTo={project.closedAt}
               />

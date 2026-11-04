@@ -1,10 +1,10 @@
-"use client"
+"use client";
 
-import { SearchIcon } from "lucide-react"
-import { useMemo, useState, useTransition } from "react"
-import { toast } from "sonner"
+import { SearchIcon } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -13,89 +13,101 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import type { ActivityRef } from "@/components/projects/project-activities"
-import { Field, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { formatDate, formatEuro, round2 } from "@/lib/format"
-import { cn } from "@/lib/utils"
-import { assignInvoiceToProject } from "@/server/actions"
+} from "@/components/ui/dialog";
+import type { ActivityRef } from "@/components/projects/project-activities";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { formatDate, formatEuro } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import { assignInvoiceToProject } from "@/server/actions";
 
-const NONE = "__none__"
+const NONE = "__none__";
 
 export type AssignableInvoice = {
-  id: string
-  number: string
-  supplierName: string
-  issueDate: string
-  description: string | null
-  cost: number
-  assigned: number
-}
+  id: string;
+  number: string;
+  supplierName: string;
+  issueDate: string;
+  description: string | null;
+  cost: number;
+  assigned: number;
+};
 
 export function AssignInvoiceDialog({
   projectId,
   invoices,
-  current,
   activities = [],
+  funders = [],
   open: controlledOpen,
   onOpenChange,
   children,
 }: {
-  projectId: string
-  invoices: AssignableInvoice[]
-  /** percentatges actuals d'aquest projecte, per factura */
-  current: Record<string, number>
-  activities?: ActivityRef[]
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  children?: React.ReactNode
+  projectId: string;
+  invoices: AssignableInvoice[];
+  /** @deprecated Ja no cal (es pot superar el 100 %). */
+  current?: Record<string, number>;
+  activities?: ActivityRef[];
+  funders?: { id: string; name: string }[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children?: React.ReactNode;
 }) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
-  const open = controlledOpen ?? uncontrolledOpen
-  const setOpen = onOpenChange ?? setUncontrolledOpen
-  const [q, setQ] = useState("")
-  const [selected, setSelected] = useState<string | null>(null)
-  const [percentage, setPercentage] = useState<number>(100)
-  const [activityId, setActivityId] = useState<string | null>(null)
-  const [pending, start] = useTransition()
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = onOpenChange ?? setUncontrolledOpen;
+  const [q, setQ] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [percentage, setPercentage] = useState<number>(100);
+  const [activityId, setActivityId] = useState<string | null>(null);
+  const [funderId, setFunderId] = useState<string | null>(null);
+  const [pending, start] = useTransition();
 
-  const available = (inv: AssignableInvoice) => round2(100 - inv.assigned + (current[inv.id] ?? 0))
   const list = useMemo(() => {
-    const t = q.trim().toLowerCase()
+    const t = q.trim().toLowerCase();
     return invoices
-      .filter((i) => available(i) > 0)
       .filter(
         (i) =>
           !t ||
           i.number.toLowerCase().includes(t) ||
           i.supplierName.toLowerCase().includes(t) ||
-          (i.description ?? "").toLowerCase().includes(t)
+          (i.description ?? "").toLowerCase().includes(t),
       )
-      .slice(0, 100)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, invoices, current])
+      .slice(0, 100);
+  }, [q, invoices]);
 
-  const sel = invoices.find((i) => i.id === selected)
+  const sel = invoices.find((i) => i.id === selected);
 
   function handleOpenChange(next: boolean) {
-    setOpen(next)
+    setOpen(next);
     if (next) {
-      setSelected(null)
-      setQ("")
-      setActivityId(null)
+      setSelected(null);
+      setQ("");
+      setActivityId(null);
+      setFunderId(null);
     }
   }
 
   function submit() {
-    if (!selected) return
+    if (!selected) return;
     start(async () => {
-      const res = await assignInvoiceToProject(projectId, selected, percentage, activityId)
-      if (!res.ok) return void toast.error(res.error)
-      toast.success("Factura assignada")
-      setOpen(false)
-    })
+      const res = await assignInvoiceToProject(
+        projectId,
+        selected,
+        percentage,
+        activityId,
+        funderId,
+      );
+      if (!res.ok) return void toast.error(res.error);
+      toast.success("Factura assignada");
+      setOpen(false);
+    });
   }
 
   return (
@@ -104,7 +116,10 @@ export function AssignInvoiceDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Assignar una factura</DialogTitle>
-          <DialogDescription>Tria una factura i el percentatge que s&apos;imputa a aquest projecte.</DialogDescription>
+          <DialogDescription>
+            Tria una factura i el percentatge que s&apos;imputa a aquest
+            projecte.
+          </DialogDescription>
         </DialogHeader>
         <div className="relative">
           <SearchIcon className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -117,7 +132,9 @@ export function AssignInvoiceDialog({
         </div>
         <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border p-1">
           {list.length === 0 && (
-            <p className="p-4 text-center text-sm text-muted-foreground">No hi ha factures disponibles.</p>
+            <p className="p-4 text-center text-sm text-muted-foreground">
+              No hi ha factures disponibles.
+            </p>
           )}
           {list.map((inv) => (
             <Button
@@ -125,17 +142,20 @@ export function AssignInvoiceDialog({
               type="button"
               variant="ghost"
               onClick={() => {
-                setSelected(inv.id)
-                setPercentage(available(inv))
+                setSelected(inv.id);
+                setPercentage(100);
               }}
               className={cn(
                 "h-auto w-full items-center justify-start gap-3 rounded-md px-3 py-2 text-left font-normal",
-                selected === inv.id && "bg-primary/10 ring-1 ring-primary"
+                selected === inv.id && "bg-primary/10 ring-1 ring-primary",
               )}
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
-                  {inv.supplierName} <span className="font-normal text-muted-foreground">· {inv.number}</span>
+                  {inv.supplierName}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    · {inv.number}
+                  </span>
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {formatDate(inv.issueDate)} · {inv.description}
@@ -143,7 +163,11 @@ export function AssignInvoiceDialog({
               </div>
               <div className="text-right">
                 <p className="tabular-nums">{formatEuro(inv.cost)}</p>
-                <p className="text-xs text-muted-foreground">{available(inv)} % disponible</p>
+                <p className="text-xs text-muted-foreground">
+                  {inv.assigned > 0
+                    ? `${inv.assigned} % ja assignat`
+                    : "Sense assignar"}
+                </p>
               </div>
             </Button>
           ))}
@@ -152,13 +176,19 @@ export function AssignInvoiceDialog({
           <div className="space-y-3">
             <Field orientation="horizontal" className="items-center">
               <FieldLabel htmlFor="pct" className="flex-1">
-                Percentatge a imputar (màx. {available(sel)} %)
+                Percentatge a imputar
+                {sel.assigned > 0 ? (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    (ja n&apos;hi ha {sel.assigned} %)
+                  </span>
+                ) : null}
               </FieldLabel>
               <Input
                 id="pct"
                 type="number"
                 min={0.01}
-                max={available(sel)}
+                max={100}
                 step="0.01"
                 value={Number.isNaN(percentage) ? "" : percentage}
                 onChange={(e) => setPercentage(e.target.valueAsNumber)}
@@ -189,17 +219,41 @@ export function AssignInvoiceDialog({
                 </Select>
               </Field>
             )}
+            {funders.length > 0 && (
+              <Field orientation="horizontal" className="items-center">
+                <FieldLabel className="flex-1">Finançador</FieldLabel>
+                <Select
+                  value={funderId ?? NONE}
+                  onValueChange={(v) => setFunderId(v === NONE ? null : v)}
+                >
+                  <SelectTrigger className="w-56" aria-label="Finançador">
+                    <SelectValue placeholder="Finançament dividit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>Finançament dividit</SelectItem>
+                    {funders.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
           </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel·la
           </Button>
-          <Button onClick={submit} disabled={!sel || pending || !(percentage > 0)}>
+          <Button
+            onClick={submit}
+            disabled={!sel || pending || !(percentage > 0)}
+          >
             {pending ? "Assignant…" : "Assigna"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

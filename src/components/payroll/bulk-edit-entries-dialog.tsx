@@ -37,6 +37,7 @@ export function BulkEditEntriesDialog({
   entryIds,
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   categories = [],
   onDone,
 }: {
@@ -46,6 +47,7 @@ export function BulkEditEntriesDialog({
   entryIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   categories?: CategoryRef[]
   onDone?: () => void
 }) {
@@ -69,6 +71,7 @@ export function BulkEditEntriesDialog({
             entryIds={entryIds}
             projectOptions={projectOptions}
             activitiesByProject={activitiesByProject}
+            fundersByProject={fundersByProject}
             categories={categories}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
@@ -87,6 +90,7 @@ function BulkEditForm({
   entryIds,
   projectOptions,
   activitiesByProject,
+  fundersByProject,
   categories: initialCategories,
   onCancel,
   onDone,
@@ -95,6 +99,7 @@ function BulkEditForm({
   entryIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject: Record<string, { id: string; name: string }[]>
+  fundersByProject: Record<string, { id: string; name: string }[]>
   categories: CategoryRef[]
   onCancel: () => void
   onDone: () => void
@@ -116,7 +121,7 @@ function BulkEditForm({
       return void toast.error("La quantitat no és vàlida")
     }
     if (changeAlloc) {
-      const err = allocationError(alloc, "max")
+      const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
       if (err) return void toast.error(`Projectes: ${err}`)
     }
     start(async () => {
@@ -199,6 +204,9 @@ function BulkEditForm({
                   categories={catalog}
                   onCatalogChange={setCatalog}
                   activitiesByProject={activitiesByProject}
+                  fundersByProject={fundersByProject}
+                  allowDuplicateIds
+                  allowOver100
                 />
               </>
             )}

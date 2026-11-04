@@ -214,8 +214,11 @@ async function main() {
   await db.delete(s.invoiceProjects)
   await db.delete(s.supplierInvoices)
   await db.delete(s.suppliers)
+  await db.delete(s.projectSubsidies)
   await db.delete(s.projectClients)
+  await db.delete(s.subsidyClients)
   await db.delete(s.projects)
+  await db.delete(s.subsidies)
   await db.delete(s.clients)
 
   // Usuari administrador

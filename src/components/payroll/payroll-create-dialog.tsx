@@ -26,11 +26,13 @@ import { createPayroll } from "@/server/actions"
 export function PayrollCreateDialog({
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   categories: initialCategories = [],
   children,
 }: {
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   categories?: CategoryRef[]
   children: React.ReactNode
 }) {
@@ -42,7 +44,7 @@ export function PayrollCreateDialog({
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const err = allocationError(alloc, "max")
+    const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
     if (err) return void toast.error(`Projectes: ${err}`)
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
     start(async () => {
@@ -131,6 +133,9 @@ export function PayrollCreateDialog({
                 categories={catalog}
                 onCatalogChange={setCatalog}
                 activitiesByProject={activitiesByProject}
+                fundersByProject={fundersByProject}
+                allowDuplicateIds
+                allowOver100
               />
             </FieldSet>
           </FieldGroup>

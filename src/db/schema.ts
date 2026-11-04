@@ -3,7 +3,6 @@ import {
   boolean,
   check,
   date,
-  foreignKey,
   index,
   integer,
   numeric,
@@ -165,6 +164,33 @@ export const clients = pgTable("clients", {
   ...timestamps,
 })
 
+/** Subvencions (finançades per clients; poden finançar projectes) */
+export const subsidies = pgTable("subsidies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  total: money("total").notNull().default(0),
+  notes: text("notes"),
+  ...timestamps,
+})
+
+/** Repartiment d'una subvenció entre clients finançadors (no pot superar el 100 %) */
+export const subsidyClients = pgTable(
+  "subsidy_clients",
+  {
+    subsidyId: uuid("subsidy_id")
+      .notNull()
+      .references(() => subsidies.id, { onDelete: "cascade" }),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    percentage: pct("percentage").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.subsidyId, t.clientId] }),
+    check("subsidy_clients_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+  ]
+)
+
 /** Projectes */
 export const projects = pgTable(
   "projects",
@@ -198,7 +224,7 @@ export const projects = pgTable(
   ]
 )
 
-/** Repartiment d'un projecte entre clients (ha de sumar 100%) */
+/** Repartiment d'un projecte entre clients (amb project_subsidies ha de sumar 100%) */
 export const projectClients = pgTable(
   "project_clients",
   {
@@ -213,6 +239,24 @@ export const projectClients = pgTable(
   (t) => [
     primaryKey({ columns: [t.projectId, t.clientId] }),
     check("project_clients_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+  ]
+)
+
+/** Repartiment d'un projecte entre subvencions (amb project_clients ha de sumar 100%) */
+export const projectSubsidies = pgTable(
+  "project_subsidies",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    subsidyId: uuid("subsidy_id")
+      .notNull()
+      .references(() => subsidies.id, { onDelete: "cascade" }),
+    percentage: pct("percentage").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.projectId, t.subsidyId] }),
+    check("project_subsidies_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
   ]
 )
 
@@ -315,10 +359,11 @@ export const supplierInvoices = pgTable(
   ]
 )
 
-/** Repartiment d'una factura entre projectes (màxim 100%) */
+/** Repartiment d'una factura entre projectes (màxim 100%; diverses files per projecte). */
 export const invoiceProjects = pgTable(
   "invoice_projects",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     invoiceId: uuid("invoice_id")
       .notNull()
       .references(() => supplierInvoices.id, { onDelete: "cascade" }),
@@ -326,15 +371,25 @@ export const invoiceProjects = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     percentage: pct("percentage").notNull(),
-    /** Activitat del projecte (opcional; 0 o 1). */
+    /** Activitat del projecte (opcional). */
     activityId: uuid("activity_id").references(() => projectActivities.id, {
       onDelete: "set null",
     }),
+    /** Finançador opcional: client XOR subvenció. Sense valor → % del projecte. */
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    subsidyId: uuid("subsidy_id").references(() => subsidies.id, { onDelete: "set null" }),
   },
   (t) => [
-    primaryKey({ columns: [t.invoiceId, t.projectId] }),
     check("invoice_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+    check(
+      "invoice_projects_funder_xor",
+      sql`not (${t.clientId} is not null and ${t.subsidyId} is not null)`
+    ),
+    index("invoice_projects_invoice_idx").on(t.invoiceId),
+    index("invoice_projects_project_idx").on(t.projectId),
     index("invoice_projects_activity_idx").on(t.activityId),
+    index("invoice_projects_client_idx").on(t.clientId),
+    index("invoice_projects_subsidy_idx").on(t.subsidyId),
   ]
 )
 
@@ -386,10 +441,11 @@ export const payrollEntries = pgTable(
   ]
 )
 
-/** Repartiment d'un registre mensual de nòmina entre projectes (màxim 100%) */
+/** Repartiment d'un registre mensual de nòmina entre projectes (màxim 100%; diverses files per projecte). */
 export const payrollEntryProjects = pgTable(
   "payroll_entry_projects",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     entryId: uuid("entry_id")
       .notNull()
       .references(() => payrollEntries.id, { onDelete: "cascade" }),
@@ -399,36 +455,42 @@ export const payrollEntryProjects = pgTable(
     percentage: pct("percentage").notNull(),
     /** Cost directe o indirecte d'aquesta assignació al projecte. */
     costType: text("cost_type").notNull().default("direct").$type<"direct" | "indirect">(),
-    /** Activitat del projecte (opcional; 0 o 1). */
+    /** Activitat del projecte (opcional). */
     activityId: uuid("activity_id").references(() => projectActivities.id, {
       onDelete: "set null",
     }),
+    /** Finançador opcional: client XOR subvenció. Sense valor → % del projecte. */
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+    subsidyId: uuid("subsidy_id").references(() => subsidies.id, { onDelete: "set null" }),
   },
   (t) => [
-    primaryKey({ columns: [t.entryId, t.projectId] }),
     check("payroll_entry_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
     check("payroll_entry_projects_cost_type", sql`${t.costType} in ('direct', 'indirect')`),
+    check(
+      "payroll_entry_projects_funder_xor",
+      sql`not (${t.clientId} is not null and ${t.subsidyId} is not null)`
+    ),
+    index("payroll_entry_projects_entry_idx").on(t.entryId),
+    index("payroll_entry_projects_project_idx").on(t.projectId),
     index("payroll_entry_projects_activity_idx").on(t.activityId),
+    index("payroll_entry_projects_client_idx").on(t.clientId),
+    index("payroll_entry_projects_subsidy_idx").on(t.subsidyId),
   ]
 )
 
-/** Categories associades a una assignació de nòmina a un projecte */
+/** Categories associades a una assignació de nòmina */
 export const payrollEntryProjectCategories = pgTable(
   "payroll_entry_project_categories",
   {
-    entryId: uuid("entry_id").notNull(),
-    projectId: uuid("project_id").notNull(),
+    allocationId: uuid("allocation_id")
+      .notNull()
+      .references(() => payrollEntryProjects.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id")
       .notNull()
       .references(() => costCategories.id, { onDelete: "cascade" }),
   },
   (t) => [
-    primaryKey({ columns: [t.entryId, t.projectId, t.categoryId] }),
-    foreignKey({
-      columns: [t.entryId, t.projectId],
-      foreignColumns: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
-      name: "pep_categories_allocation_fk",
-    }).onDelete("cascade"),
+    primaryKey({ columns: [t.allocationId, t.categoryId] }),
     index("payroll_entry_project_categories_category_idx").on(t.categoryId),
   ]
 )
@@ -439,10 +501,25 @@ export const payrollEntryProjectCategories = pgTable(
 
 export const clientsRelations = relations(clients, ({ many }) => ({
   projects: many(projectClients),
+  subsidies: many(subsidyClients),
+}))
+
+export const subsidiesRelations = relations(subsidies, ({ many }) => ({
+  clients: many(subsidyClients),
+  projects: many(projectSubsidies),
+}))
+
+export const subsidyClientsRelations = relations(subsidyClients, ({ one }) => ({
+  subsidy: one(subsidies, {
+    fields: [subsidyClients.subsidyId],
+    references: [subsidies.id],
+  }),
+  client: one(clients, { fields: [subsidyClients.clientId], references: [clients.id] }),
 }))
 
 export const projectsRelations = relations(projects, ({ many }) => ({
   clients: many(projectClients),
+  subsidies: many(projectSubsidies),
   activities: many(projectActivities),
   invoices: many(invoiceProjects),
   payrollEntries: many(payrollEntryProjects),
@@ -460,6 +537,17 @@ export const projectActivitiesRelations = relations(projectActivities, ({ one, m
 export const projectClientsRelations = relations(projectClients, ({ one }) => ({
   project: one(projects, { fields: [projectClients.projectId], references: [projects.id] }),
   client: one(clients, { fields: [projectClients.clientId], references: [clients.id] }),
+}))
+
+export const projectSubsidiesRelations = relations(projectSubsidies, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectSubsidies.projectId],
+    references: [projects.id],
+  }),
+  subsidy: one(subsidies, {
+    fields: [projectSubsidies.subsidyId],
+    references: [subsidies.id],
+  }),
 }))
 
 export const suppliersRelations = relations(suppliers, ({ many }) => ({
@@ -487,6 +575,8 @@ export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => 
     fields: [invoiceProjects.activityId],
     references: [projectActivities.id],
   }),
+  client: one(clients, { fields: [invoiceProjects.clientId], references: [clients.id] }),
+  subsidy: one(subsidies, { fields: [invoiceProjects.subsidyId], references: [subsidies.id] }),
 }))
 
 export const invoiceCategoriesRelations = relations(invoiceCategories, ({ one }) => ({
@@ -522,6 +612,11 @@ export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ 
     fields: [payrollEntryProjects.activityId],
     references: [projectActivities.id],
   }),
+  client: one(clients, { fields: [payrollEntryProjects.clientId], references: [clients.id] }),
+  subsidy: one(subsidies, {
+    fields: [payrollEntryProjects.subsidyId],
+    references: [subsidies.id],
+  }),
   categories: many(payrollEntryProjectCategories),
 }))
 
@@ -529,8 +624,8 @@ export const payrollEntryProjectCategoriesRelations = relations(
   payrollEntryProjectCategories,
   ({ one }) => ({
     allocation: one(payrollEntryProjects, {
-      fields: [payrollEntryProjectCategories.entryId, payrollEntryProjectCategories.projectId],
-      references: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
+      fields: [payrollEntryProjectCategories.allocationId],
+      references: [payrollEntryProjects.id],
     }),
     category: one(costCategories, {
       fields: [payrollEntryProjectCategories.categoryId],
@@ -540,6 +635,7 @@ export const payrollEntryProjectCategoriesRelations = relations(
 )
 
 export type Client = typeof clients.$inferSelect
+export type Subsidy = typeof subsidies.$inferSelect
 export type Project = typeof projects.$inferSelect
 export type Supplier = typeof suppliers.$inferSelect
 export type SupplierInvoice = typeof supplierInvoices.$inferSelect

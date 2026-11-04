@@ -82,6 +82,7 @@ export function InvoicesTable({
   invoices,
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   suppliers,
   categories = [],
   defaultVatDeductibleRate,
@@ -89,6 +90,7 @@ export function InvoicesTable({
   invoices: InvoiceListItem[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
@@ -300,6 +302,9 @@ export function InvoicesTable({
                         {assigned < 100 && (
                           <Badge variant="destructive">{round2(100 - assigned)} % sense assignar</Badge>
                         )}
+                        {assigned > 100 && (
+                          <Badge variant="outline">{round2(assigned - 100)} % de més</Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="pr-4">
@@ -309,11 +314,13 @@ export function InvoicesTable({
                           id: a.projectId,
                           percentage: a.percentage,
                           activityId: a.activityId,
+                          funderId: a.funderId ?? null,
                         }))}
                         categoryIds={inv.categoryIds}
                         categories={categories}
                         projectOptions={projectOptions}
                         activitiesByProject={activitiesByProject}
+                        fundersByProject={fundersByProject}
                         suppliers={suppliers}
                         open={rowEditId === inv.id}
                         onOpenChange={(o) => setRowEditId(o ? inv.id : null)}
@@ -348,6 +355,7 @@ export function InvoicesTable({
         invoiceIds={selectedIds}
         projectOptions={projectOptions}
         activitiesByProject={activitiesByProject}
+        fundersByProject={fundersByProject}
         suppliers={suppliers}
         categories={categories}
         defaultVatDeductibleRate={defaultVatDeductibleRate}

@@ -1,11 +1,14 @@
-"use client"
+"use client";
 
-import { useState, useTransition } from "react"
-import { toast } from "sonner"
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
-import { CategoryPicker, type CategoryRef } from "@/components/categories/category-picker"
-import type { ActivityRef } from "@/components/projects/project-activities"
-import { Button } from "@/components/ui/button"
+import {
+  CategoryPicker,
+  type CategoryRef,
+} from "@/components/categories/category-picker";
+import type { ActivityRef } from "@/components/projects/project-activities";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -14,44 +17,60 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { MonthPicker } from "@/components/ui/month-picker"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
-import { formatEuro } from "@/lib/format"
-import { currentMonth } from "@/lib/months"
-import { assignPayrollToProject, unassignPayrollEntries } from "@/server/actions"
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { MonthPicker } from "@/components/ui/month-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type";
+import { formatEuro } from "@/lib/format";
+import { currentMonth } from "@/lib/months";
+import {
+  assignPayrollToProject,
+  unassignPayrollAllocations,
+} from "@/server/actions";
 
 export type PayrollOption = {
-  id: string
-  personName: string
-  role: string | null
-  monthlyAmount: number
-  startMonth: string
-  lastMonth: string | null
-}
+  id: string;
+  personName: string;
+  role: string | null;
+  monthlyAmount: number;
+  startMonth: string;
+  lastMonth: string | null;
+};
 
 export type PayrollAssignmentEdit = {
-  payrollId: string
-  from: string
-  to: string
-  percentage: number
-  costType?: CostType
-  categoryIds?: string[]
-  activityId?: string | null
-  /** Mesos actualment assignats; els que quedin fora del nou rang es desassignen. */
-  entryIdsByMonth?: { entryId: string; month: string }[]
-}
+  payrollId: string;
+  from: string;
+  to: string;
+  percentage: number;
+  costType?: CostType;
+  categoryIds?: string[];
+  activityId?: string | null;
+  funderId?: string | null;
+  /** Assignacions que s'estan editant (es substitueixen pel nou rang). */
+  allocationIds?: string[];
+};
 
-const NONE = "__none__"
+const NONE = "__none__";
 
 export function AssignPayrollDialog({
   projectId,
   payrolls,
   categories: initialCategories = [],
   activities = [],
+  funders = [],
   defaultFrom,
   defaultTo,
   edit,
@@ -59,68 +78,80 @@ export function AssignPayrollDialog({
   onOpenChange: setControlledOpen,
   children,
 }: {
-  projectId: string
-  payrolls: PayrollOption[]
-  categories?: CategoryRef[]
-  activities?: ActivityRef[]
-  defaultFrom?: string | null
-  defaultTo?: string | null
-  edit?: PayrollAssignmentEdit | null
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  children?: React.ReactNode
+  projectId: string;
+  payrolls: PayrollOption[];
+  categories?: CategoryRef[];
+  activities?: ActivityRef[];
+  funders?: { id: string; name: string }[];
+  defaultFrom?: string | null;
+  defaultTo?: string | null;
+  edit?: PayrollAssignmentEdit | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children?: React.ReactNode;
 }) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
-  const open = controlledOpen ?? uncontrolledOpen
-  const setOpen = setControlledOpen ?? setUncontrolledOpen
-  const isEdit = !!edit
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = setControlledOpen ?? setUncontrolledOpen;
+  const isEdit = !!edit;
 
-  const [payrollId, setPayrollId] = useState<string>("")
-  const [from, setFrom] = useState(currentMonth().slice(0, 7))
-  const [to, setTo] = useState(currentMonth().slice(0, 7))
-  const [percentage, setPercentage] = useState(100)
-  const [costType, setCostType] = useState<CostType>("direct")
-  const [categoryIds, setCategoryIds] = useState<string[]>([])
-  const [activityId, setActivityId] = useState<string | null>(null)
-  const [catalog, setCatalog] = useState(initialCategories)
-  const [pending, start] = useTransition()
+  const [payrollId, setPayrollId] = useState<string>("");
+  const [from, setFrom] = useState(currentMonth().slice(0, 7));
+  const [to, setTo] = useState(currentMonth().slice(0, 7));
+  const [percentage, setPercentage] = useState(100);
+  const [costType, setCostType] = useState<CostType>("direct");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [activityId, setActivityId] = useState<string | null>(null);
+  const [funderId, setFunderId] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState(initialCategories);
+  const [pending, start] = useTransition();
 
-  const sel = payrolls.find((p) => p.id === payrollId)
+  const sel = payrolls.find((p) => p.id === payrollId);
 
   function hydrate() {
-    setCatalog(initialCategories)
+    setCatalog(initialCategories);
     if (edit) {
-      setPayrollId(edit.payrollId)
-      setPercentage(edit.percentage)
-      setCostType(edit.costType ?? "direct")
-      setCategoryIds(edit.categoryIds ?? [])
-      setActivityId(edit.activityId ?? null)
-      setFrom(edit.from.slice(0, 7))
-      setTo(edit.to.slice(0, 7))
-      return
+      setPayrollId(edit.payrollId);
+      setPercentage(edit.percentage);
+      setCostType(edit.costType ?? "direct");
+      setCategoryIds(edit.categoryIds ?? []);
+      setActivityId(edit.activityId ?? null);
+      setFunderId(edit.funderId ?? null);
+      setFrom(edit.from.slice(0, 7));
+      setTo(edit.to.slice(0, 7));
+      return;
     }
-    setPayrollId("")
-    setPercentage(100)
-    setCostType("direct")
-    setCategoryIds([])
-    setActivityId(null)
-    setFrom((defaultFrom ?? currentMonth()).slice(0, 7))
-    setTo((defaultTo && defaultTo < currentMonth() ? defaultTo : currentMonth()).slice(0, 7))
+    setPayrollId("");
+    setPercentage(100);
+    setCostType("direct");
+    setCategoryIds([]);
+    setActivityId(null);
+    setFunderId(null);
+    setFrom((defaultFrom ?? currentMonth()).slice(0, 7));
+    setTo(
+      (defaultTo && defaultTo < currentMonth()
+        ? defaultTo
+        : currentMonth()
+      ).slice(0, 7),
+    );
   }
 
   // Reset en obrir (incl. obertura controlada que no passa per onOpenChange).
-  const [prevOpen, setPrevOpen] = useState(open)
+  const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
-    setPrevOpen(open)
-    if (open) hydrate()
+    setPrevOpen(open);
+    if (open) hydrate();
   }
 
   function handleOpenChange(o: boolean) {
-    setOpen(o)
+    setOpen(o);
   }
 
   function submit() {
     start(async () => {
+      if (edit?.allocationIds?.length) {
+        await unassignPayrollAllocations(edit.allocationIds);
+      }
       const res = await assignPayrollToProject(
         projectId,
         payrollId,
@@ -129,26 +160,18 @@ export function AssignPayrollDialog({
         percentage,
         costType,
         categoryIds,
-        activityId
-      )
-      if (!res.ok) return void toast.error(res.error)
-
-      if (edit?.entryIdsByMonth?.length) {
-        const fromKey = `${from}-01`
-        const toKey = `${to}-01`
-        const outside = edit.entryIdsByMonth
-          .filter((e) => e.month < fromKey || e.month > toKey)
-          .map((e) => e.entryId)
-        if (outside.length) await unassignPayrollEntries(projectId, outside)
-      }
+        activityId,
+        funderId,
+      );
+      if (!res.ok) return void toast.error(res.error);
 
       toast.success(
         isEdit
           ? `Assignació actualitzada (${res.data?.count} ${res.data?.count === 1 ? "mes" : "mesos"})`
-          : `Nòmina assignada a ${res.data?.count} ${res.data?.count === 1 ? "mes" : "mesos"}`
-      )
-      setOpen(false)
-    })
+          : `Nòmina assignada a ${res.data?.count} ${res.data?.count === 1 ? "mes" : "mesos"}`,
+      );
+      setOpen(false);
+    });
   }
 
   return (
@@ -156,7 +179,9 @@ export function AssignPayrollDialog({
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Editar assignació de nòmina" : "Assignar una nòmina"}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Editar assignació de nòmina" : "Assignar una nòmina"}
+          </DialogTitle>
           <DialogDescription>
             {isEdit
               ? "Canvia el rang de mesos o el percentatge imputat a aquest projecte."
@@ -173,12 +198,14 @@ export function AssignPayrollDialog({
                   value={
                     sel
                       ? `${sel.personName}${sel.role ? ` · ${sel.role}` : ""}`
-                      : payrolls.find((p) => p.id === edit.payrollId)?.personName ?? "—"
+                      : (payrolls.find((p) => p.id === edit.payrollId)
+                          ?.personName ?? "—")
                   }
                 />
                 {sel && (
                   <FieldDescription>
-                    {formatEuro(sel.monthlyAmount)} / mes · registres fins a {sel.lastMonth?.slice(0, 7) ?? "—"}
+                    {formatEuro(sel.monthlyAmount)} / mes · registres fins a{" "}
+                    {sel.lastMonth?.slice(0, 7) ?? "—"}
                   </FieldDescription>
                 )}
               </>
@@ -192,14 +219,20 @@ export function AssignPayrollDialog({
                     {payrolls.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.personName}
-                        {p.role && <span className="text-muted-foreground"> · {p.role}</span>}
+                        {p.role && (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {p.role}
+                          </span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {sel && (
                   <FieldDescription>
-                    {formatEuro(sel.monthlyAmount)} / mes · registres fins a {sel.lastMonth?.slice(0, 7) ?? "—"}
+                    {formatEuro(sel.monthlyAmount)} / mes · registres fins a{" "}
+                    {sel.lastMonth?.slice(0, 7) ?? "—"}
                   </FieldDescription>
                 )}
               </>
@@ -230,13 +263,20 @@ export function AssignPayrollDialog({
             </Field>
             <Field>
               <FieldLabel>Tipus de cost</FieldLabel>
-              <Select value={costType} onValueChange={(v) => setCostType(v as CostType)}>
+              <Select
+                value={costType}
+                onValueChange={(v) => setCostType(v as CostType)}
+              >
                 <SelectTrigger className="w-full" aria-label="Tipus de cost">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
-                  <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                  <SelectItem value="direct">
+                    {COST_TYPE_LABELS.direct}
+                  </SelectItem>
+                  <SelectItem value="indirect">
+                    {COST_TYPE_LABELS.indirect}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -262,6 +302,27 @@ export function AssignPayrollDialog({
               </Select>
             </Field>
           )}
+          {funders.length > 0 && (
+            <Field>
+              <FieldLabel>Finançador</FieldLabel>
+              <Select
+                value={funderId ?? NONE}
+                onValueChange={(v) => setFunderId(v === NONE ? null : v)}
+              >
+                <SelectTrigger className="w-full" aria-label="Finançador">
+                  <SelectValue placeholder="Finançament dividit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>Finançament dividit</SelectItem>
+                  {funders.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Field>
             <FieldLabel>Categories</FieldLabel>
             <CategoryPicker
@@ -273,19 +334,30 @@ export function AssignPayrollDialog({
           </Field>
           <FieldDescription>
             {isEdit
-              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus, activitat i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
-              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus, l'activitat i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
+              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus, activitat, finançador i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
+              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus, l'activitat, el finançador i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
           </FieldDescription>
         </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>
             Cancel·la
           </Button>
-          <Button onClick={submit} disabled={!payrollId || !from || !to || pending || !(percentage > 0)}>
-            {pending ? (isEdit ? "Desant…" : "Assignant…") : isEdit ? "Desa" : "Assigna"}
+          <Button
+            onClick={submit}
+            disabled={
+              !payrollId || !from || !to || pending || !(percentage > 0)
+            }
+          >
+            {pending
+              ? isEdit
+                ? "Desant…"
+                : "Assignant…"
+              : isEdit
+                ? "Desa"
+                : "Assigna"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

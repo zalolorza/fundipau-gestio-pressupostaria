@@ -24,12 +24,15 @@ import { formatEuro, formatMonth } from "@/lib/format";
 import { currentMonth, endOfMonth } from "@/lib/months";
 import {
   activitiesByProjectMap,
+  fundersByProjectMap,
   getClientOptions,
   getDashboard,
   getProjectOptions,
+  getSubsidyOptions,
   getSupplierOptions,
   listCategories,
   listProjectActivities,
+  listProjectFunders,
 } from "@/server/queries";
 
 export default async function HomePage() {
@@ -37,18 +40,22 @@ export default async function HomePage() {
   const [
     d,
     clientOptions,
+    subsidyOptions,
     projects,
     suppliers,
     categories,
     activities,
+    funders,
     defaultVatDeductibleRate,
   ] = await Promise.all([
     getDashboard(month),
     getClientOptions(),
+    getSubsidyOptions(),
     getProjectOptions(),
     getSupplierOptions(),
     listCategories(),
     listProjectActivities(),
+    listProjectFunders(),
     getDefaultVatDeductibleRate(),
   ]);
   const today = new Date().toISOString().slice(0, 10);
@@ -62,6 +69,7 @@ export default async function HomePage() {
   }));
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const activitiesByProject = activitiesByProjectMap(activities);
+  const fundersByProject = fundersByProjectMap(funders);
   const monthInvoicesHref = `/factures?des=${month}&fins=${endOfMonth(month)}`;
 
   return (
@@ -80,7 +88,10 @@ export default async function HomePage() {
             hint={`${d.clientCount} clients finançadors`}
             href="/projectes"
             action={
-              <ProjectDialog clientOptions={clientOptions}>
+              <ProjectDialog
+                clientOptions={clientOptions}
+                subsidyOptions={subsidyOptions}
+              >
                 <Button variant="default" size="sm">
                   <PlusIcon /> Nou projecte
                 </Button>
@@ -102,6 +113,7 @@ export default async function HomePage() {
               <InvoiceDialog
                 projectOptions={projectOptions}
                 activitiesByProject={activitiesByProject}
+                fundersByProject={fundersByProject}
                 suppliers={suppliers}
                 categories={categoryOptions}
                 defaultVatDeductibleRate={defaultVatDeductibleRate}

@@ -99,6 +99,7 @@ export function InvoiceDialog({
   categories: initialCategories = [],
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   suppliers,
   defaultSupplierId,
   defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
@@ -113,6 +114,8 @@ export function InvoiceDialog({
   projectOptions: { id: string; name: string; hint?: string }[]
   /** Activitats agrupades per projecte (selector al costat de cada projecte). */
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  /** Finançadors agrupats per projecte (selector opcional per fila). */
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   /** Proveïdor preseleccionat en crear una factura (p. ex. des de la fitxa del proveïdor) */
   defaultSupplierId?: string
@@ -293,7 +296,7 @@ export function InvoiceDialog({
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const err = allocationError(alloc, "max")
+    const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
     if (err) return void toast.error(`Projectes: ${err}`)
     start(async () => {
       const res = await saveInvoice(
@@ -587,8 +590,8 @@ export function InvoiceDialog({
             <FieldSet>
               <FieldLegend>Projectes</FieldLegend>
               <FieldDescription>
-                Percentatge del cost imputat a cada projecte i, opcionalment, l&apos;activitat.
-                Pot quedar una part sense assignar.
+                Percentatge del cost imputat a cada projecte i, opcionalment, l&apos;activitat
+                i el finançador. Pot superar el 100 % o quedar-ne sense assignar.
               </FieldDescription>
               <AllocationEditor
                 value={alloc}
@@ -598,6 +601,9 @@ export function InvoiceDialog({
                 itemLabel="projecte"
                 emptyText="Factura sense assignar a cap projecte"
                 activitiesByProject={activitiesByProject}
+                fundersByProject={fundersByProject}
+                allowDuplicateIds
+                allowOver100
               />
             </FieldSet>
           </FieldGroup>

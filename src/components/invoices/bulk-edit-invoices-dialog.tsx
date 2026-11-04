@@ -48,6 +48,7 @@ export function BulkEditInvoicesDialog({
   invoiceIds,
   projectOptions,
   activitiesByProject = {},
+  fundersByProject = {},
   suppliers,
   categories = [],
   defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
@@ -58,6 +59,7 @@ export function BulkEditInvoicesDialog({
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
+  fundersByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories?: CategoryRef[]
   defaultVatDeductibleRate?: number
@@ -81,6 +83,7 @@ export function BulkEditInvoicesDialog({
             invoiceIds={invoiceIds}
             projectOptions={projectOptions}
             activitiesByProject={activitiesByProject}
+            fundersByProject={fundersByProject}
             suppliers={suppliers}
             categories={categories}
             defaultVatDeductibleRate={defaultVatDeductibleRate}
@@ -100,6 +103,7 @@ function BulkEditForm({
   invoiceIds,
   projectOptions,
   activitiesByProject,
+  fundersByProject,
   suppliers,
   categories: initialCategories,
   defaultVatDeductibleRate,
@@ -109,6 +113,7 @@ function BulkEditForm({
   invoiceIds: string[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject: Record<string, { id: string; name: string }[]>
+  fundersByProject: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   categories: CategoryRef[]
   defaultVatDeductibleRate: number
@@ -167,7 +172,7 @@ function BulkEditForm({
       return void toast.error("El nom del proveïdor és obligatori")
     }
     if (changeAlloc) {
-      const err = allocationError(alloc, "max")
+      const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
       if (err) return void toast.error(`Projectes: ${err}`)
     }
     start(async () => {
@@ -415,6 +420,9 @@ function BulkEditForm({
                   itemLabel="projecte"
                   emptyText="Sense assignar a cap projecte"
                   activitiesByProject={activitiesByProject}
+                  fundersByProject={fundersByProject}
+                  allowDuplicateIds
+                  allowOver100
                 />
               </>
             )}

@@ -18,13 +18,17 @@ import {
   payrolls,
   projectActivities,
   projectClients,
+  projectSubsidies,
   projects,
+  subsidies,
+  subsidyClients,
   supplierInvoices,
   suppliers,
 } from "@/db/schema"
 import { requireSession } from "@/lib/auth"
 import type { CostType } from "@/lib/cost-type"
-import { round2 } from "@/lib/format"
+import { formatEuro, round2 } from "@/lib/format"
+import { funderColumns, parseFunderKey } from "@/lib/funders"
 import { computeInvoice } from "@/lib/invoice"
 import { isInvoiceFilePathname } from "@/lib/invoice-file"
 import { addMonths, endOfYear, monthRange, toMonth } from "@/lib/months"
@@ -57,14 +61,20 @@ const pct = z.coerce.number().gt(0, "El percentatge ha de ser més gran que 0").
 const costTypeSchema = z.enum(["direct", "indirect"])
 const categoryIdsSchema = z.array(z.string().uuid()).default([])
 const optionalActivityId = z.string().uuid().nullable().optional()
+const optionalFunderId = z
+  .string()
+  .nullable()
+  .optional()
+  .refine((v) => v == null || parseFunderKey(v) != null, "Finançador no vàlid")
 const allocationSchema = z.array(
   z.object({
     id: z.string().uuid(),
     percentage: pct,
     activityId: optionalActivityId,
+    funderId: optionalFunderId,
   })
 )
-/** Assignació a projecte amb tipus de cost, categories i activitat (nòmines). */
+/** Assignació a projecte amb tipus de cost, categories, activitat i finançador (nòmines). */
 const payrollAllocationSchema = z.array(
   z.object({
     id: z.string().uuid(),
@@ -72,9 +82,10 @@ const payrollAllocationSchema = z.array(
     costType: costTypeSchema.default("direct"),
     categoryIds: categoryIdsSchema,
     activityId: optionalActivityId,
+    funderId: optionalFunderId,
   })
 )
-type Allocation = z.infer<typeof allocationSchema>
+type Allocation = z.infer<typeof allocationSchema>[number]
 type PayrollAllocation = z.infer<typeof payrollAllocationSchema>[number]
 
 /** Valida que l'activitat (si n'hi ha) pertanyi al projecte. */
@@ -92,16 +103,87 @@ async function resolveActivityId(
   return row.id
 }
 
-/** Resol l'activitat de cada assignació de nòmina (null si no n'hi ha). */
-async function resolvePayrollAllocationActivities(list: PayrollAllocation[]) {
+/** Valida que el finançador (si n'hi ha) sigui del projecte. */
+async function resolveFunder(
+  projectId: string,
+  funderId: string | null | undefined
+): Promise<{ clientId: string | null; subsidyId: string | null } | undefined> {
+  if (funderId === undefined) return undefined
+  if (funderId === null || funderId === "") return { clientId: null, subsidyId: null }
+  const cols = funderColumns(funderId)
+  if (cols.clientId) {
+    const row = await db.query.projectClients.findFirst({
+      where: and(eq(projectClients.projectId, projectId), eq(projectClients.clientId, cols.clientId)),
+      columns: { clientId: true },
+    })
+    if (!row) throw new Error("El client no finança aquest projecte")
+  } else if (cols.subsidyId) {
+    const row = await db.query.projectSubsidies.findFirst({
+      where: and(
+        eq(projectSubsidies.projectId, projectId),
+        eq(projectSubsidies.subsidyId, cols.subsidyId)
+      ),
+      columns: { subsidyId: true },
+    })
+    if (!row) throw new Error("La subvenció no finança aquest projecte")
+  }
+  return cols
+}
+
+type ResolvedInvoiceAlloc = {
+  projectId: string
+  percentage: number
+  activityId: string | null
+  clientId: string | null
+  subsidyId: string | null
+}
+
+async function resolveInvoiceAllocations(list: Allocation[]): Promise<ResolvedInvoiceAlloc[]> {
   return Promise.all(
-    list.map(async (a) => ({
-      projectId: a.id,
-      percentage: a.percentage,
-      costType: a.costType,
-      categoryIds: a.categoryIds,
-      activityId: ((await resolveActivityId(a.id, a.activityId ?? null)) ?? null) as string | null,
-    }))
+    list.map(async (a) => {
+      const activityId = (await resolveActivityId(a.id, a.activityId ?? null)) ?? null
+      const funder = (await resolveFunder(a.id, a.funderId ?? null)) ?? {
+        clientId: null,
+        subsidyId: null,
+      }
+      return {
+        projectId: a.id,
+        percentage: a.percentage,
+        activityId,
+        ...funder,
+      }
+    })
+  )
+}
+
+type ResolvedPayrollAlloc = {
+  projectId: string
+  percentage: number
+  costType: CostType
+  categoryIds: string[]
+  activityId: string | null
+  clientId: string | null
+  subsidyId: string | null
+}
+
+/** Resol activitat i finançador de cada assignació de nòmina. */
+async function resolvePayrollAllocations(list: PayrollAllocation[]): Promise<ResolvedPayrollAlloc[]> {
+  return Promise.all(
+    list.map(async (a) => {
+      const activityId = (await resolveActivityId(a.id, a.activityId ?? null)) ?? null
+      const funder = (await resolveFunder(a.id, a.funderId ?? null)) ?? {
+        clientId: null,
+        subsidyId: null,
+      }
+      return {
+        projectId: a.id,
+        percentage: a.percentage,
+        costType: a.costType,
+        categoryIds: a.categoryIds,
+        activityId,
+        ...funder,
+      }
+    })
   )
 }
 
@@ -117,30 +199,57 @@ async function replaceInvoiceCategories(invoiceId: string, categoryIds: string[]
 }
 
 async function replacePayrollAllocationCategories(
-  pairs: { entryId: string; projectId: string; categoryIds: string[] }[]
+  pairs: { allocationId: string; categoryIds: string[] }[]
 ) {
   if (!pairs.length) return
-  // Esborra només les parelles entry×projecte que estem actualitzant
-  await Promise.all(
-    pairs.map((p) =>
-      db
-        .delete(payrollEntryProjectCategories)
-        .where(
-          and(
-            eq(payrollEntryProjectCategories.entryId, p.entryId),
-            eq(payrollEntryProjectCategories.projectId, p.projectId)
-          )
-        )
-    )
-  )
+  const allocationIds = pairs.map((p) => p.allocationId)
+  await db
+    .delete(payrollEntryProjectCategories)
+    .where(inArray(payrollEntryProjectCategories.allocationId, allocationIds))
   const rows = pairs.flatMap((p) =>
     uniqueIds(p.categoryIds).map((categoryId) => ({
-      entryId: p.entryId,
-      projectId: p.projectId,
+      allocationId: p.allocationId,
       categoryId,
     }))
   )
   if (rows.length) await db.insert(payrollEntryProjectCategories).values(rows)
+}
+
+/** Insereix assignacions de nòmina i les seves categories; retorna els ids creats. */
+async function insertPayrollAllocations(
+  rows: {
+    entryId: string
+    projectId: string
+    percentage: number
+    costType: CostType
+    activityId: string | null
+    clientId: string | null
+    subsidyId: string | null
+    categoryIds: string[]
+  }[]
+) {
+  if (!rows.length) return [] as string[]
+  const inserted = await db
+    .insert(payrollEntryProjects)
+    .values(
+      rows.map((r) => ({
+        entryId: r.entryId,
+        projectId: r.projectId,
+        percentage: r.percentage,
+        costType: r.costType,
+        activityId: r.activityId,
+        clientId: r.clientId,
+        subsidyId: r.subsidyId,
+      }))
+    )
+    .returning({ id: payrollEntryProjects.id })
+  await replacePayrollAllocationCategories(
+    inserted.map((row, i) => ({
+      allocationId: row.id,
+      categoryIds: rows[i]!.categoryIds,
+    }))
+  )
+  return inserted.map((r) => r.id)
 }
 
 function fail(e: unknown): { ok: false; error: string } {
@@ -149,13 +258,22 @@ function fail(e: unknown): { ok: false; error: string } {
   return { ok: false, error: e instanceof Error ? e.message : "S'ha produït un error" }
 }
 
-function checkAllocations(list: Allocation, mode: "exact" | "max") {
-  const ids = new Set(list.map((a) => a.id))
-  if (ids.size !== list.length) throw new Error("Hi ha elements repetits a l'assignació")
+function checkAllocations(
+  list: { id: string; percentage: number }[],
+  mode: "exact" | "max",
+  opts?: { allowDuplicateIds?: boolean; allowOver100?: boolean }
+) {
+  if (!opts?.allowDuplicateIds) {
+    const ids = new Set(list.map((a) => a.id))
+    if (ids.size !== list.length) throw new Error("Hi ha elements repetits a l'assignació")
+  }
+  if (list.some((a) => a.percentage > 100))
+    throw new Error("Cada percentatge ha de ser com a màxim 100 %")
   const sum = round2(list.reduce((s, a) => s + a.percentage, 0))
   if (mode === "exact" && list.length > 0 && sum !== 100)
     throw new Error(`Els percentatges han de sumar 100 % (ara sumen ${sum} %)`)
-  if (sum > 100) throw new Error(`Els percentatges no poden superar el 100 % (ara sumen ${sum} %)`)
+  if (!opts?.allowOver100 && sum > 100)
+    throw new Error(`Els percentatges no poden superar el 100 % (ara sumen ${sum} %)`)
 }
 
 /* -------------------------------- Clients -------------------------------- */
@@ -193,7 +311,219 @@ export async function deleteClient(id: string) {
   await requireSession()
   await db.delete(clients).where(eq(clients.id, id))
   revalidatePath("/clients")
+  revalidatePath("/subvencions", "layout")
   redirect("/clients")
+}
+
+/* ------------------------------ Subvencions ------------------------------ */
+
+const subsidySchema = z.object({
+  name: z.string().trim().min(1, "El nom és obligatori"),
+  total: money.min(0, "El total no pot ser negatiu"),
+  notes: optText,
+})
+export type SubsidyInput = z.input<typeof subsidySchema>
+
+export async function saveSubsidy(
+  id: string | null,
+  input: SubsidyInput,
+  clientAllocations?: { id: string; percentage: number }[],
+  projectAllocations?: { id: string; percentage: number }[]
+): Promise<ActionResult<{ id: string }>> {
+  await requireSession()
+  try {
+    const data = subsidySchema.parse(input)
+    if (projectAllocations) {
+      await assertProjectAllocationsFitSubsidy(data.total, projectAllocations)
+    } else if (id) {
+      await assertSubsidyTotalCoversProjects(id, data.total)
+    }
+    let subsidyId = id
+    if (id) await db.update(subsidies).set(data).where(eq(subsidies.id, id))
+    else [{ id: subsidyId }] = await db.insert(subsidies).values(data).returning({ id: subsidies.id })
+
+    if (clientAllocations) {
+      const res = await setSubsidyClients(subsidyId!, clientAllocations)
+      if (!res.ok) return res
+    }
+    if (projectAllocations) {
+      const res = await setSubsidyProjects(subsidyId!, projectAllocations)
+      if (!res.ok) return res
+    }
+    revalidatePath("/subvencions")
+    revalidatePath(`/subvencions/${subsidyId}`)
+    revalidatePath("/projectes", "layout")
+    return { ok: true, data: { id: subsidyId! } }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+export async function deleteSubsidy(id: string) {
+  await requireSession()
+  await db.delete(subsidies).where(eq(subsidies.id, id))
+  revalidatePath("/subvencions")
+  revalidatePath("/projectes", "layout")
+  revalidatePath("/clients", "layout")
+  redirect("/subvencions")
+}
+
+/** Repartiment de la subvenció entre clients: no pot superar el 100 % (no cal arribar-hi). */
+export async function setSubsidyClients(
+  subsidyId: string,
+  input: { id: string; percentage: number }[]
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const list = allocationSchema.parse(input)
+    checkAllocations(list, "max")
+    const del = db.delete(subsidyClients).where(eq(subsidyClients.subsidyId, subsidyId))
+    if (list.length)
+      await db.batch([
+        del,
+        db.insert(subsidyClients).values(
+          list.map((a) => ({ subsidyId, clientId: a.id, percentage: a.percentage }))
+        ),
+      ])
+    else await del
+    revalidatePath(`/subvencions/${subsidyId}`)
+    revalidatePath("/subvencions")
+    revalidatePath("/clients", "layout")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/**
+ * Projectes finançats per la subvenció.
+ * El % és sobre el pressupost de cada projecte; la suma d'imports no pot superar el total.
+ * Els altres finançadors del projecte es reescalen per completar el 100 %.
+ */
+export async function setSubsidyProjects(
+  subsidyId: string,
+  input: { id: string; percentage: number }[]
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const list = allocationSchema.parse(input)
+    const ids = new Set(list.map((a) => a.id))
+    if (ids.size !== list.length) throw new Error("Hi ha projectes repetits a l'assignació")
+
+    const subsidy = await db.query.subsidies.findFirst({
+      where: eq(subsidies.id, subsidyId),
+      columns: { id: true, total: true },
+    })
+    if (!subsidy) throw new Error("Subvenció no trobada")
+    await assertProjectAllocationsFitSubsidy(subsidy.total, list)
+
+    const current = await db
+      .select({ projectId: projectSubsidies.projectId })
+      .from(projectSubsidies)
+      .where(eq(projectSubsidies.subsidyId, subsidyId))
+
+    for (const row of current) {
+      if (!ids.has(row.projectId)) {
+        await applySubsidyShareOnProject(row.projectId, subsidyId, null)
+      }
+    }
+    for (const a of list) {
+      await applySubsidyShareOnProject(a.id, subsidyId, a.percentage)
+    }
+
+    revalidatePath(`/subvencions/${subsidyId}`)
+    revalidatePath("/subvencions")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/clients", "layout")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/** Reescriu els finançadors d'un projecte posant/treient aquesta subvenció i reescalant la resta. */
+async function applySubsidyShareOnProject(
+  projectId: string,
+  subsidyId: string,
+  percentage: number | null
+) {
+  const [clientRows, subsidyRows] = await Promise.all([
+    db
+      .select({ id: projectClients.clientId, percentage: projectClients.percentage })
+      .from(projectClients)
+      .where(eq(projectClients.projectId, projectId)),
+    db
+      .select({ id: projectSubsidies.subsidyId, percentage: projectSubsidies.percentage })
+      .from(projectSubsidies)
+      .where(eq(projectSubsidies.projectId, projectId)),
+  ])
+
+  type Funder = { kind: "client" | "subsidy"; id: string; percentage: number }
+  const others: Funder[] = [
+    ...clientRows.map((r) => ({ kind: "client" as const, id: r.id, percentage: r.percentage })),
+    ...subsidyRows
+      .filter((r) => r.id !== subsidyId)
+      .map((r) => ({ kind: "subsidy" as const, id: r.id, percentage: r.percentage })),
+  ]
+
+  let next: Funder[]
+  if (percentage == null) {
+    next = scaleFunders(others, 100)
+  } else if (others.length === 0) {
+    next = [{ kind: "subsidy", id: subsidyId, percentage }]
+  } else {
+    next = [
+      ...scaleFunders(others, round2(100 - percentage)),
+      { kind: "subsidy", id: subsidyId, percentage },
+    ]
+  }
+
+  await db.delete(projectClients).where(eq(projectClients.projectId, projectId))
+  await db.delete(projectSubsidies).where(eq(projectSubsidies.projectId, projectId))
+  const clientsList = next.filter((f) => f.kind === "client")
+  const subsidiesList = next.filter((f) => f.kind === "subsidy")
+  if (clientsList.length) {
+    await db.insert(projectClients).values(
+      clientsList.map((a) => ({
+        projectId,
+        clientId: a.id,
+        percentage: a.percentage,
+      }))
+    )
+  }
+  if (subsidiesList.length) {
+    await db.insert(projectSubsidies).values(
+      subsidiesList.map((a) => ({
+        projectId,
+        subsidyId: a.id,
+        percentage: a.percentage,
+      }))
+    )
+  }
+  revalidatePath(`/projectes/${projectId}`)
+}
+
+/** Reparteix els % perquè sumín exactament `target` (o llista buida si target ≤ 0). */
+function scaleFunders<T extends { percentage: number }>(rows: T[], target: number): T[] {
+  if (rows.length === 0 || target <= 0) return []
+  const current = round2(rows.reduce((s, r) => s + r.percentage, 0))
+  if (current <= 0) {
+    const each = round2(target / rows.length)
+    const out = rows.map((r, i) => ({
+      ...r,
+      percentage: i === rows.length - 1 ? 0 : each,
+    }))
+    const head = round2(out.slice(0, -1).reduce((s, r) => s + r.percentage, 0))
+    out[out.length - 1]!.percentage = round2(target - head)
+    return out.filter((r) => r.percentage > 0)
+  }
+  const out = rows.map((r) => ({
+    ...r,
+    percentage: round2((r.percentage / current) * target),
+  }))
+  const head = round2(out.slice(0, -1).reduce((s, r) => s + r.percentage, 0))
+  out[out.length - 1]!.percentage = round2(target - head)
+  return out.filter((r) => r.percentage > 0)
 }
 
 /* ------------------------------- Projectes ------------------------------- */
@@ -241,22 +571,35 @@ export type ProjectInput = z.input<typeof projectSchema>
 export async function saveProject(
   id: string | null,
   input: ProjectInput,
-  clientAllocations?: { id: string; percentage: number }[]
+  funderAllocations?: {
+    clients?: { id: string; percentage: number }[]
+    subsidies?: { id: string; percentage: number }[]
+  }
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
     const data = projectSchema.parse(input)
     if (id) await assertActivityBudgetsFit(id, data.maxBudget)
+    if (funderAllocations) {
+      await assertSubsidiesCoverProject(
+        id,
+        data.maxBudget,
+        funderAllocations.subsidies ?? []
+      )
+    } else if (id) {
+      await assertExistingProjectSubsidiesFit(id, data.maxBudget)
+    }
     let projectId = id
     if (id) await db.update(projects).set(data).where(eq(projects.id, id))
     else [{ id: projectId }] = await db.insert(projects).values(data).returning({ id: projects.id })
 
-    if (clientAllocations) {
-      const res = await setProjectClients(projectId!, clientAllocations)
+    if (funderAllocations) {
+      const res = await setProjectFunders(projectId!, funderAllocations)
       if (!res.ok) return res
     }
     revalidatePath("/projectes")
     revalidatePath(`/projectes/${projectId}`)
+    revalidatePath("/subvencions", "layout")
     revalidatePath("/")
     return { ok: true, data: { id: projectId! } }
   } catch (e) {
@@ -272,89 +615,227 @@ export async function deleteProject(id: string) {
   redirect("/projectes")
 }
 
-/** Repartiment del projecte entre clients: ha de sumar exactament 100 % */
+/** Repartiment del projecte entre clients i/o subvencions: ha de sumar exactament 100 %. */
+export async function setProjectFunders(
+  projectId: string,
+  input: {
+    clients?: { id: string; percentage: number }[]
+    subsidies?: { id: string; percentage: number }[]
+  }
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const clientsList = allocationSchema.parse(input.clients ?? [])
+    const subsidiesList = allocationSchema.parse(input.subsidies ?? [])
+    const combined = [...clientsList, ...subsidiesList]
+    const allIds = new Set(combined.map((a) => a.id))
+    if (allIds.size !== combined.length)
+      throw new Error("Hi ha elements repetits a l'assignació")
+    checkAllocations(combined, "exact")
+
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+      columns: { maxBudget: true },
+    })
+    if (!project) throw new Error("Projecte no trobat")
+    await assertSubsidiesCoverProject(projectId, project.maxBudget, subsidiesList)
+
+    await db.delete(projectClients).where(eq(projectClients.projectId, projectId))
+    await db.delete(projectSubsidies).where(eq(projectSubsidies.projectId, projectId))
+    if (clientsList.length)
+      await db.insert(projectClients).values(
+        clientsList.map((a) => ({
+          projectId,
+          clientId: a.id,
+          percentage: a.percentage,
+        }))
+      )
+    if (subsidiesList.length)
+      await db.insert(projectSubsidies).values(
+        subsidiesList.map((a) => ({
+          projectId,
+          subsidyId: a.id,
+          percentage: a.percentage,
+        }))
+      )
+    revalidatePath(`/projectes/${projectId}`)
+    revalidatePath("/projectes")
+    revalidatePath("/clients", "layout")
+    revalidatePath("/subvencions", "layout")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/** Import que una subvenció aporta a un projecte a partir del % del pressupost. */
+function subsidyShareOfProject(projectMaxBudget: number, percentage: number) {
+  return round2((projectMaxBudget * percentage) / 100)
+}
+
+/** Suma dels imports ja assignats d'una subvenció a projectes (opcionalment excloent-ne un). */
+async function subsidyAllocatedAmount(subsidyId: string, excludeProjectId?: string | null) {
+  const rows = await db
+    .select({
+      maxBudget: projects.maxBudget,
+      percentage: projectSubsidies.percentage,
+    })
+    .from(projectSubsidies)
+    .innerJoin(projects, eq(projects.id, projectSubsidies.projectId))
+    .where(
+      and(
+        eq(projectSubsidies.subsidyId, subsidyId),
+        excludeProjectId ? ne(projectSubsidies.projectId, excludeProjectId) : undefined
+      )
+    )
+  return round2(rows.reduce((s, r) => s + subsidyShareOfProject(r.maxBudget, r.percentage), 0))
+}
+
+/** El total de la subvenció ha de cobrir els imports ja assignats als projectes. */
+async function assertSubsidyTotalCoversProjects(subsidyId: string, total: number) {
+  const allocated = await subsidyAllocatedAmount(subsidyId)
+  if (allocated > round2(total)) {
+    throw new Error(
+      `El total no pot ser inferior a ${formatEuro(allocated)} ja assignats a projectes`
+    )
+  }
+}
+
+/** La suma d'imports (pressupost × %) dels projectes no pot superar el total de la subvenció. */
+async function assertProjectAllocationsFitSubsidy(
+  total: number,
+  allocations: { id: string; percentage: number }[]
+) {
+  if (!allocations.length) return
+  const rows = await db
+    .select({ id: projects.id, name: projects.name, maxBudget: projects.maxBudget })
+    .from(projects)
+    .where(inArray(projects.id, allocations.map((a) => a.id)))
+  const byId = new Map(rows.map((r) => [r.id, r]))
+  let allocated = 0
+  for (const a of allocations) {
+    const p = byId.get(a.id)
+    if (!p) throw new Error("Projecte no trobat")
+    if (a.percentage > 100) {
+      throw new Error(`El percentatge del projecte «${p.name}» no pot superar el 100 %`)
+    }
+    const share = subsidyShareOfProject(p.maxBudget, a.percentage)
+    if (share > round2(p.maxBudget)) {
+      throw new Error(
+        `L'import assignat a «${p.name}» (${formatEuro(share)}) supera el seu pressupost (${formatEuro(p.maxBudget)})`
+      )
+    }
+    allocated = round2(allocated + share)
+  }
+  if (allocated > round2(total)) {
+    throw new Error(
+      `Els projectes sumen ${formatEuro(allocated)}, superior al total de la subvenció (${formatEuro(total)})`
+    )
+  }
+}
+
+/** Les subvencions d'aquest projecte no poden superar el seu total restant. */
+async function assertSubsidiesCoverProject(
+  projectId: string | null,
+  projectMaxBudget: number,
+  subsidyAllocations: { id: string; percentage: number }[]
+) {
+  if (!subsidyAllocations.length) return
+  for (const a of subsidyAllocations) {
+    const subsidy = await db.query.subsidies.findFirst({
+      where: eq(subsidies.id, a.id),
+      columns: { id: true, name: true, total: true },
+    })
+    if (!subsidy) throw new Error("Subvenció no trobada")
+    const elsewhere = await subsidyAllocatedAmount(subsidy.id, projectId)
+    const share = subsidyShareOfProject(projectMaxBudget, a.percentage)
+    const needed = round2(elsewhere + share)
+    if (needed > round2(subsidy.total)) {
+      const available = round2(Math.max(0, subsidy.total - elsewhere))
+      throw new Error(
+        available > 0
+          ? `La subvenció «${subsidy.name}» només té ${formatEuro(available)} disponibles (total ${formatEuro(subsidy.total)})`
+          : `La subvenció «${subsidy.name}» ja té tot el total assignat a altres projectes`
+      )
+    }
+  }
+}
+
+/** En canviar el pressupost, les subvencions ja assignades encara han de cabre. */
+async function assertExistingProjectSubsidiesFit(projectId: string, projectMaxBudget: number) {
+  const rows = await db
+    .select({
+      subsidyId: projectSubsidies.subsidyId,
+      percentage: projectSubsidies.percentage,
+    })
+    .from(projectSubsidies)
+    .where(eq(projectSubsidies.projectId, projectId))
+  await assertSubsidiesCoverProject(
+    projectId,
+    projectMaxBudget,
+    rows.map((r) => ({ id: r.subsidyId, percentage: r.percentage }))
+  )
+}
+
+/** @deprecated Usa setProjectFunders. Mantingut per compatibilitat amb l'agent. */
 export async function setProjectClients(
   projectId: string,
   input: { id: string; percentage: number }[]
 ): Promise<ActionResult> {
-  await requireSession()
-  try {
-    const list = allocationSchema.parse(input)
-    checkAllocations(list, "exact")
-    const del = db.delete(projectClients).where(eq(projectClients.projectId, projectId))
-    if (list.length)
-      await db.batch([
-        del,
-        db.insert(projectClients).values(list.map((a) => ({ projectId, clientId: a.id, percentage: a.percentage }))),
-      ])
-    else await del
-    revalidatePath(`/projectes/${projectId}`)
-    revalidatePath("/projectes")
-    revalidatePath("/clients", "layout")
-    return { ok: true }
-  } catch (e) {
-    return fail(e)
-  }
+  return setProjectFunders(projectId, { clients: input, subsidies: [] })
 }
 
-/** Assigna (o actualitza) un percentatge d'una factura a un projecte */
+/** Afegeix una assignació d'una factura a un projecte (pot haver-n'hi diverses). */
 export async function assignInvoiceToProject(
   projectId: string,
   invoiceId: string,
   percentage: number,
-  activityId?: string | null
-): Promise<ActionResult> {
+  activityId?: string | null,
+  funderId?: string | null
+): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
-    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId))
-    const [{ other }] = await db
-      .select({ other: sql<string>`coalesce(sum(${invoiceProjects.percentage}), 0)` })
-      .from(invoiceProjects)
-      .where(and(eq(invoiceProjects.invoiceId, invoiceId), ne(invoiceProjects.projectId, projectId)))
-    const available = round2(100 - Number(other))
-    if (p > available)
-      throw new Error(`Aquesta factura només té un ${available} % disponible per assignar`)
-    const values = {
-      invoiceId,
-      projectId,
-      percentage: p,
-      ...(activity !== undefined ? { activityId: activity } : {}),
-    }
-    await db
+    const activity = (await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
+    const funder =
+      (await resolveFunder(projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
+        clientId: null,
+        subsidyId: null,
+      }
+    const [row] = await db
       .insert(invoiceProjects)
-      .values(values)
-      .onConflictDoUpdate({
-        target: [invoiceProjects.invoiceId, invoiceProjects.projectId],
-        set: {
-          percentage: p,
-          ...(activity !== undefined ? { activityId: activity } : {}),
-        },
+      .values({
+        invoiceId,
+        projectId,
+        percentage: p,
+        activityId: activity,
+        clientId: funder.clientId,
+        subsidyId: funder.subsidyId,
       })
+      .returning({ id: invoiceProjects.id })
     revalidatePath(`/projectes/${projectId}`)
     revalidatePath("/factures")
-    return { ok: true }
+    return { ok: true, data: { id: row.id } }
   } catch (e) {
     return fail(e)
   }
 }
 
-/** Canvia (o treu) l'activitat d'una factura ja assignada al projecte. */
+/** Canvia (o treu) l'activitat d'una assignació de factura. */
 export async function setInvoiceProjectActivity(
-  projectId: string,
-  invoiceId: string,
+  allocationId: string,
   activityId: string | null
 ): Promise<ActionResult> {
   await requireSession()
   try {
-    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)
-    const updated = await db
-      .update(invoiceProjects)
-      .set({ activityId: activity ?? null })
-      .where(and(eq(invoiceProjects.projectId, projectId), eq(invoiceProjects.invoiceId, invoiceId)))
-      .returning({ invoiceId: invoiceProjects.invoiceId })
-    if (!updated.length) throw new Error("La factura no està assignada a aquest projecte")
-    revalidatePath(`/projectes/${projectId}`)
+    const row = await db.query.invoiceProjects.findFirst({
+      where: eq(invoiceProjects.id, allocationId),
+      columns: { id: true, projectId: true },
+    })
+    if (!row) throw new Error("Assignació no trobada")
+    const activity = (await resolveActivityId(row.projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
+    await db.update(invoiceProjects).set({ activityId: activity }).where(eq(invoiceProjects.id, allocationId))
+    revalidatePath(`/projectes/${row.projectId}`)
     revalidatePath("/factures")
     return { ok: true }
   } catch (e) {
@@ -362,6 +843,47 @@ export async function setInvoiceProjectActivity(
   }
 }
 
+/** Canvia (o treu) el finançador d'una assignació de factura. */
+export async function setInvoiceProjectFunder(
+  allocationId: string,
+  funderId: string | null
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const row = await db.query.invoiceProjects.findFirst({
+      where: eq(invoiceProjects.id, allocationId),
+      columns: { id: true, projectId: true },
+    })
+    if (!row) throw new Error("Assignació no trobada")
+    const funder =
+      (await resolveFunder(row.projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
+        clientId: null,
+        subsidyId: null,
+      }
+    await db
+      .update(invoiceProjects)
+      .set({ clientId: funder.clientId, subsidyId: funder.subsidyId })
+      .where(eq(invoiceProjects.id, allocationId))
+    revalidatePath(`/projectes/${row.projectId}`)
+    revalidatePath("/factures")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+export async function unassignInvoiceAllocation(allocationId: string): Promise<ActionResult> {
+  await requireSession()
+  const [deleted] = await db
+    .delete(invoiceProjects)
+    .where(eq(invoiceProjects.id, allocationId))
+    .returning({ projectId: invoiceProjects.projectId })
+  if (deleted) revalidatePath(`/projectes/${deleted.projectId}`)
+  revalidatePath("/factures")
+  return { ok: true }
+}
+
+/** @deprecated Prefer unassignInvoiceAllocation */
 export async function unassignInvoiceFromProject(projectId: string, invoiceId: string): Promise<ActionResult> {
   await requireSession()
   await db
@@ -373,7 +895,7 @@ export async function unassignInvoiceFromProject(projectId: string, invoiceId: s
 }
 
 /**
- * Assigna una nòmina a un projecte per a un rang de mesos.
+ * Assigna una nòmina a un projecte per a un rang de mesos (afegeix files noves).
  * Si manquen registres mensuals, els crea amb l'import del mes més proper
  * (o la quantitat per defecte de la nòmina si encara no n'hi ha cap).
  * Valida que cap mes superi el 100 % assignat.
@@ -386,14 +908,20 @@ export async function assignPayrollToProject(
   percentage: number,
   costType: CostType = "direct",
   categoryIds: string[] = [],
-  activityId?: string | null
+  activityId?: string | null,
+  funderId?: string | null
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
     const kind = costTypeSchema.parse(costType)
     const cats = categoryIdsSchema.parse(categoryIds)
-    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId))
+    const activity = (await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
+    const funder =
+      (await resolveFunder(projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
+        clientId: null,
+        subsidyId: null,
+      }
     const months = monthRange(fromMonth, toMonthValue)
     if (!months.length) throw new Error("El rang de mesos no és vàlid")
 
@@ -442,50 +970,17 @@ export async function assignPayrollToProject(
       .where(and(eq(payrollEntries.payrollId, payrollId), inArray(payrollEntries.month, months)))
     if (!entries.length) throw new Error("No s'han pogut crear els registres mensuals")
 
-    const others = await db
-      .select({
-        entryId: payrollEntryProjects.entryId,
-        sum: sql<string>`sum(${payrollEntryProjects.percentage})`,
-      })
-      .from(payrollEntryProjects)
-      .where(
-        and(
-          inArray(
-            payrollEntryProjects.entryId,
-            entries.map((e) => e.id)
-          ),
-          ne(payrollEntryProjects.projectId, projectId)
-        )
-      )
-      .groupBy(payrollEntryProjects.entryId)
-    const otherMap = new Map(others.map((o) => [o.entryId, Number(o.sum)]))
-    const over = entries.filter((e) => round2((otherMap.get(e.id) ?? 0) + p) > 100)
-    if (over.length)
-      throw new Error(
-        `Supera el 100 % en ${over.length} ${over.length === 1 ? "mes" : "mesos"} (p. ex. ${over[0].month.slice(0, 7)})`
-      )
-
-    await db
-      .insert(payrollEntryProjects)
-      .values(
-        entries.map((e) => ({
-          entryId: e.id,
-          projectId,
-          percentage: p,
-          costType: kind,
-          ...(activity !== undefined ? { activityId: activity } : {}),
-        }))
-      )
-      .onConflictDoUpdate({
-        target: [payrollEntryProjects.entryId, payrollEntryProjects.projectId],
-        set: {
-          percentage: p,
-          costType: kind,
-          ...(activity !== undefined ? { activityId: activity } : {}),
-        },
-      })
-    await replacePayrollAllocationCategories(
-      entries.map((e) => ({ entryId: e.id, projectId, categoryIds: cats }))
+    await insertPayrollAllocations(
+      entries.map((e) => ({
+        entryId: e.id,
+        projectId,
+        percentage: p,
+        costType: kind,
+        activityId: activity,
+        clientId: funder.clientId,
+        subsidyId: funder.subsidyId,
+        categoryIds: cats,
+      }))
     )
     revalidatePath(`/projectes/${projectId}`)
     revalidatePath(`/nomines/${payrollId}`)
@@ -496,6 +991,19 @@ export async function assignPayrollToProject(
   }
 }
 
+export async function unassignPayrollAllocations(allocationIds: string[]): Promise<ActionResult> {
+  await requireSession()
+  if (!allocationIds.length) return { ok: true }
+  const deleted = await db
+    .delete(payrollEntryProjects)
+    .where(inArray(payrollEntryProjects.id, allocationIds))
+    .returning({ projectId: payrollEntryProjects.projectId })
+  for (const p of new Set(deleted.map((d) => d.projectId))) revalidatePath(`/projectes/${p}`)
+  revalidatePath("/nomines", "layout")
+  return { ok: true }
+}
+
+/** @deprecated Prefer unassignPayrollAllocations */
 export async function unassignPayrollEntries(projectId: string, entryIds: string[]): Promise<ActionResult> {
   await requireSession()
   if (entryIds.length)
@@ -507,24 +1015,53 @@ export async function unassignPayrollEntries(projectId: string, entryIds: string
   return { ok: true }
 }
 
-/** Canvia (o treu) l'activitat d'una partida de nòmina ja assignada al projecte. */
+/** Canvia (o treu) l'activitat d'una assignació de nòmina. */
 export async function setPayrollEntryProjectActivity(
-  projectId: string,
-  entryId: string,
+  allocationId: string,
   activityId: string | null
 ): Promise<ActionResult> {
   await requireSession()
   try {
-    const activity = await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)
-    const updated = await db
+    const row = await db.query.payrollEntryProjects.findFirst({
+      where: eq(payrollEntryProjects.id, allocationId),
+      columns: { id: true, projectId: true },
+    })
+    if (!row) throw new Error("Assignació no trobada")
+    const activity = (await resolveActivityId(row.projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
+    await db
       .update(payrollEntryProjects)
-      .set({ activityId: activity ?? null })
-      .where(
-        and(eq(payrollEntryProjects.projectId, projectId), eq(payrollEntryProjects.entryId, entryId))
-      )
-      .returning({ entryId: payrollEntryProjects.entryId })
-    if (!updated.length) throw new Error("La partida no està assignada a aquest projecte")
-    revalidatePath(`/projectes/${projectId}`)
+      .set({ activityId: activity })
+      .where(eq(payrollEntryProjects.id, allocationId))
+    revalidatePath(`/projectes/${row.projectId}`)
+    revalidatePath("/nomines", "layout")
+    return { ok: true }
+  } catch (e) {
+    return fail(e)
+  }
+}
+
+/** Canvia (o treu) el finançador d'una assignació de nòmina. */
+export async function setPayrollEntryProjectFunder(
+  allocationId: string,
+  funderId: string | null
+): Promise<ActionResult> {
+  await requireSession()
+  try {
+    const row = await db.query.payrollEntryProjects.findFirst({
+      where: eq(payrollEntryProjects.id, allocationId),
+      columns: { id: true, projectId: true },
+    })
+    if (!row) throw new Error("Assignació no trobada")
+    const funder =
+      (await resolveFunder(row.projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
+        clientId: null,
+        subsidyId: null,
+      }
+    await db
+      .update(payrollEntryProjects)
+      .set({ clientId: funder.clientId, subsidyId: funder.subsidyId })
+      .where(eq(payrollEntryProjects.id, allocationId))
+    revalidatePath(`/projectes/${row.projectId}`)
     revalidatePath("/nomines", "layout")
     return { ok: true }
   } catch (e) {
@@ -620,7 +1157,12 @@ export type InvoiceInput = z.input<typeof invoiceSchema>
 export async function saveInvoice(
   id: string | null,
   input: InvoiceInput,
-  allocations: { id: string; percentage: number; activityId?: string | null }[],
+  allocations: {
+    id: string
+    percentage: number
+    activityId?: string | null
+    funderId?: string | null
+  }[],
   options?: { createSupplier?: boolean; categoryIds?: string[] }
 ): Promise<ActionResult<{ id: string; supplierId: string | null }>> {
   await requireSession()
@@ -628,18 +1170,9 @@ export async function saveInvoice(
     const parsed = invoiceSchema.parse(input)
     const { file, ...data } = parsed
     const list = allocationSchema.parse(allocations)
-    checkAllocations(list, "max")
+    checkAllocations(list, "max", { allowDuplicateIds: true, allowOver100: true })
     const categoryIds = categoryIdsSchema.parse(options?.categoryIds ?? [])
-    const resolvedActivities = await Promise.all(
-      list.map(async (a) => ({
-        projectId: a.id,
-        percentage: a.percentage,
-        activityId:
-          a.activityId === undefined
-            ? undefined
-            : ((await resolveActivityId(a.id, a.activityId)) ?? null),
-      }))
-    )
+    const resolved = await resolveInvoiceAllocations(list)
 
     // Crear el proveïdor a partir de les dades de la factura, si es demana
     if (!data.supplierId && options?.createSupplier) {
@@ -677,31 +1210,18 @@ export async function saveInvoice(
     if (id) await db.update(supplierInvoices).set(values).where(eq(supplierInvoices.id, id))
     else [{ id: invoiceId }] = await db.insert(supplierInvoices).values(values).returning({ id: supplierInvoices.id })
 
-    const prevAlloc =
-      id != null
-        ? await db
-            .select({
-              projectId: invoiceProjects.projectId,
-              activityId: invoiceProjects.activityId,
-            })
-            .from(invoiceProjects)
-            .where(eq(invoiceProjects.invoiceId, id))
-        : []
-    const prevActivityByProject = new Map(prevAlloc.map((a) => [a.projectId, a.activityId]))
-
     const clearAlloc = db.delete(invoiceProjects).where(eq(invoiceProjects.invoiceId, invoiceId!))
-    if (resolvedActivities.length)
+    if (resolved.length)
       await db.batch([
         clearAlloc,
         db.insert(invoiceProjects).values(
-          resolvedActivities.map((a) => ({
+          resolved.map((a) => ({
             invoiceId: invoiceId!,
             projectId: a.projectId,
             percentage: a.percentage,
-            activityId:
-              a.activityId !== undefined
-                ? a.activityId
-                : (prevActivityByProject.get(a.projectId) ?? null),
+            activityId: a.activityId,
+            clientId: a.clientId,
+            subsidyId: a.subsidyId,
           }))
         ),
       ])
@@ -786,7 +1306,8 @@ export async function bulkUpdateInvoices(
   try {
     const invoiceIds = invoiceIdsSchema.parse(ids)
     const data = bulkInvoicePatchSchema.parse(patch)
-    if (data.allocations) checkAllocations(data.allocations, "max")
+    if (data.allocations)
+      checkAllocations(data.allocations, "max", { allowDuplicateIds: true, allowOver100: true })
 
     if (data.supplier) {
       await db
@@ -855,27 +1376,7 @@ export async function bulkUpdateInvoices(
     }
 
     if (data.allocations) {
-      const prevAlloc = await db
-        .select({
-          invoiceId: invoiceProjects.invoiceId,
-          projectId: invoiceProjects.projectId,
-          activityId: invoiceProjects.activityId,
-        })
-        .from(invoiceProjects)
-        .where(inArray(invoiceProjects.invoiceId, invoiceIds))
-      const prevActivity = new Map(
-        prevAlloc.map((a) => [`${a.invoiceId}:${a.projectId}`, a.activityId] as const)
-      )
-      const resolved = await Promise.all(
-        data.allocations.map(async (a) => ({
-          projectId: a.id,
-          percentage: a.percentage,
-          activityId:
-            a.activityId === undefined
-              ? undefined
-              : ((await resolveActivityId(a.id, a.activityId)) ?? null),
-        }))
-      )
+      const resolved = await resolveInvoiceAllocations(data.allocations)
       const clear = db.delete(invoiceProjects).where(inArray(invoiceProjects.invoiceId, invoiceIds))
       if (resolved.length) {
         await db.batch([
@@ -886,10 +1387,9 @@ export async function bulkUpdateInvoices(
                 invoiceId,
                 projectId: a.projectId,
                 percentage: a.percentage,
-                activityId:
-                  a.activityId !== undefined
-                    ? a.activityId
-                    : (prevActivity.get(`${invoiceId}:${a.projectId}`) ?? null),
+                activityId: a.activityId,
+                clientId: a.clientId,
+                subsidyId: a.subsidyId,
               }))
             )
           ),
@@ -961,15 +1461,17 @@ export async function createPayroll(
     costType?: CostType
     categoryIds?: string[]
     activityId?: string | null
+    funderId?: string | null
   }[]
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
     const data = payrollSchema.parse(input)
-    const list = await resolvePayrollAllocationActivities(payrollAllocationSchema.parse(allocations))
+    const list = await resolvePayrollAllocations(payrollAllocationSchema.parse(allocations))
     checkAllocations(
       list.map((a) => ({ id: a.projectId, percentage: a.percentage })),
-      "max"
+      "max",
+      { allowDuplicateIds: true, allowOver100: true }
     )
     const [{ id }] = await db.insert(payrolls).values(data).returning({ id: payrolls.id })
 
@@ -981,22 +1483,18 @@ export async function createPayroll(
       .values(months.map((month) => ({ payrollId: id, month, amount: data.monthlyAmount })))
       .returning({ id: payrollEntries.id })
     if (list.length && entries.length) {
-      await db
-        .insert(payrollEntryProjects)
-        .values(
-          entries.flatMap((e) =>
-            list.map((a) => ({
-              entryId: e.id,
-              projectId: a.projectId,
-              percentage: a.percentage,
-              costType: a.costType,
-              activityId: a.activityId,
-            }))
-          )
-        )
-      await replacePayrollAllocationCategories(
+      await insertPayrollAllocations(
         entries.flatMap((e) =>
-          list.map((a) => ({ entryId: e.id, projectId: a.projectId, categoryIds: a.categoryIds }))
+          list.map((a) => ({
+            entryId: e.id,
+            projectId: a.projectId,
+            percentage: a.percentage,
+            costType: a.costType,
+            activityId: a.activityId,
+            clientId: a.clientId,
+            subsidyId: a.subsidyId,
+            categoryIds: a.categoryIds,
+          }))
         )
       )
     }
@@ -1095,14 +1593,16 @@ export async function setPayrollEntryProjects(
     costType?: CostType
     categoryIds?: string[]
     activityId?: string | null
+    funderId?: string | null
   }[]
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
-    const list = await resolvePayrollAllocationActivities(payrollAllocationSchema.parse(input))
+    const list = await resolvePayrollAllocations(payrollAllocationSchema.parse(input))
     checkAllocations(
       list.map((a) => ({ id: a.projectId, percentage: a.percentage })),
-      "max"
+      "max",
+      { allowDuplicateIds: true, allowOver100: true }
     )
     const ref = toMonth(referenceMonth)
     const where =
@@ -1115,28 +1615,23 @@ export async function setPayrollEntryProjects(
     if (!entries.length) return { ok: true, data: { count: 0 } }
     const ids = entries.map((e) => e.id)
 
-    const del = db.delete(payrollEntryProjects).where(inArray(payrollEntryProjects.entryId, ids))
+    await db.delete(payrollEntryProjects).where(inArray(payrollEntryProjects.entryId, ids))
     if (list.length) {
-      await db.batch([
-        del,
-        db.insert(payrollEntryProjects).values(
-          ids.flatMap((entryId) =>
-            list.map((a) => ({
-              entryId,
-              projectId: a.projectId,
-              percentage: a.percentage,
-              costType: a.costType,
-              activityId: a.activityId,
-            }))
-          )
-        ),
-      ])
-      await replacePayrollAllocationCategories(
+      await insertPayrollAllocations(
         ids.flatMap((entryId) =>
-          list.map((a) => ({ entryId, projectId: a.projectId, categoryIds: a.categoryIds }))
+          list.map((a) => ({
+            entryId,
+            projectId: a.projectId,
+            percentage: a.percentage,
+            costType: a.costType,
+            activityId: a.activityId,
+            clientId: a.clientId,
+            subsidyId: a.subsidyId,
+            categoryIds: a.categoryIds,
+          }))
         )
       )
-    } else await del
+    }
 
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
@@ -1173,24 +1668,16 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
       .onConflictDoNothing()
       .returning({ id: payrollEntries.id })
     if (last?.projects.length && created.length) {
-      await db
-        .insert(payrollEntryProjects)
-        .values(
-          created.flatMap((e) =>
-            last.projects.map((a) => ({
-              entryId: e.id,
-              projectId: a.projectId,
-              percentage: a.percentage,
-              costType: a.costType,
-              activityId: a.activityId,
-            }))
-          )
-        )
-      await replacePayrollAllocationCategories(
+      await insertPayrollAllocations(
         created.flatMap((e) =>
           last.projects.map((a) => ({
             entryId: e.id,
             projectId: a.projectId,
+            percentage: a.percentage,
+            costType: a.costType,
+            activityId: a.activityId,
+            clientId: a.clientId,
+            subsidyId: a.subsidyId,
             categoryIds: a.categories.map((c) => c.categoryId),
           }))
         )
@@ -1235,7 +1722,8 @@ export async function bulkUpdatePayrollEntries(
   try {
     const ids = payrollEntryIdsSchema.parse(entryIds)
     const data = bulkPayrollEntryPatchSchema.parse(patch)
-    if (data.allocations) checkAllocations(data.allocations, "max")
+    if (data.allocations)
+      checkAllocations(data.allocations, "max", { allowDuplicateIds: true, allowOver100: true })
 
     const owned = await db
       .select({ id: payrollEntries.id })
@@ -1252,36 +1740,23 @@ export async function bulkUpdatePayrollEntries(
     }
 
     if (data.allocations) {
-      const list = await resolvePayrollAllocationActivities(data.allocations)
-      const clear = db
-        .delete(payrollEntryProjects)
-        .where(inArray(payrollEntryProjects.entryId, ownedIds))
+      const list = await resolvePayrollAllocations(data.allocations)
+      await db.delete(payrollEntryProjects).where(inArray(payrollEntryProjects.entryId, ownedIds))
       if (list.length) {
-        await db.batch([
-          clear,
-          db.insert(payrollEntryProjects).values(
-            ownedIds.flatMap((entryId) =>
-              list.map((a) => ({
-                entryId,
-                projectId: a.projectId,
-                percentage: a.percentage,
-                costType: a.costType,
-                activityId: a.activityId,
-              }))
-            )
-          ),
-        ])
-        await replacePayrollAllocationCategories(
+        await insertPayrollAllocations(
           ownedIds.flatMap((entryId) =>
             list.map((a) => ({
               entryId,
               projectId: a.projectId,
+              percentage: a.percentage,
+              costType: a.costType,
+              activityId: a.activityId,
+              clientId: a.clientId,
+              subsidyId: a.subsidyId,
               categoryIds: a.categoryIds,
             }))
           )
         )
-      } else {
-        await clear
       }
     }
 
