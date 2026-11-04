@@ -17,10 +17,16 @@ import {
 import { formatEuro, formatPct, round2 } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
+  activitiesByProjectMap,
+  fundersByProjectMap,
   getClientOptions,
   getProjectOptions,
   getSubsidy,
   getSubsidyBilling,
+  getSupplierOptions,
+  listCategories,
+  listProjectActivities,
+  listProjectFunders,
 } from "@/server/queries"
 
 export async function generateMetadata({
@@ -34,13 +40,39 @@ export async function generateMetadata({
 export default async function SubsidyPage({ params }: PageProps<"/subvencions/[id]">) {
   const { id } = await params
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound()
-  const [subsidy, clientOptions, projectOptions, billing] = await Promise.all([
+  const [
+    subsidy,
+    clientOptions,
+    projectOptions,
+    billing,
+    suppliers,
+    categories,
+    activities,
+    funders,
+  ] = await Promise.all([
     getSubsidy(id),
     getClientOptions(),
     getProjectOptions(),
     getSubsidyBilling(id),
+    getSupplierOptions(),
+    listCategories(),
+    listProjectActivities(),
+    listProjectFunders(),
   ])
   if (!subsidy) notFound()
+
+  const today = new Date().toISOString().slice(0, 10)
+  const edit = {
+    projectOptions: projectOptions.map((p) => ({
+      id: p.id,
+      name: p.name,
+      hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
+    })),
+    activitiesByProject: activitiesByProjectMap(activities),
+    fundersByProject: fundersByProjectMap(funders),
+    suppliers,
+    categories: categories.map((c) => ({ id: c.id, name: c.name })),
+  }
 
   const {
     clients,
@@ -203,6 +235,7 @@ export default async function SubsidyPage({ params }: PageProps<"/subvencions/[i
               subsidyName={subsidy.name}
               projects={billing.projects}
               total={billing.total}
+              edit={edit}
             />
           )}
         </div>

@@ -114,9 +114,9 @@ export default async function ProjectPage({
     })),
   ];
   const current = project.invoices.reduce<Record<string, number>>((acc, i) => {
-    acc[i.id] = round2((acc[i.id] ?? 0) + i.percentage)
-    return acc
-  }, {})
+    acc[i.id] = round2((acc[i.id] ?? 0) + i.percentage);
+    return acc;
+  }, {});
   const categoryOptions = categories.map((c) => ({ id: c.id, name: c.name }));
   const activityOptions = project.activities.map((a) => ({
     id: a.id,

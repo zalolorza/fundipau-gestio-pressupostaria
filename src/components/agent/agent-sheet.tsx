@@ -313,8 +313,28 @@ export function AgentSheet({
 
             {error && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {error.message || "No s'ha pogut completar la petició."}
-                <div className="mt-2">
+                <p className="font-medium">S&apos;ha produït un error</p>
+                <p className="mt-1 text-xs text-destructive/80">
+                  Copia el missatge i reporta&apos;l perquè el puguem revisar.
+                </p>
+                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-destructive/20 bg-destructive/10 p-2 font-mono text-xs text-destructive">
+                  {error.message || "No s'ha pogut completar la petició."}
+                </pre>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const text = error.message || "No s'ha pogut completar la petició."
+                      void navigator.clipboard.writeText(text).then(
+                        () => toast.success("Error copiat"),
+                        () => toast.error("No s'ha pogut copiar")
+                      )
+                    }}
+                  >
+                    Copia
+                  </Button>
                   <Button
                     type="button"
                     size="sm"

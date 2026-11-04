@@ -1046,6 +1046,177 @@ export async function getClientProjectLinks(clientId: string) {
   return [...map.values()].sort((a, b) => a.project.name.localeCompare(b.project.name))
 }
 
+/** Dades per obrir el modal d'edició des de la taula «Per partida». */
+export type BillingInvoiceLine = {
+  kind: "factura"
+  date: string
+  concept: string
+  detail: string
+  cost: number
+  projectPct: number
+  clientPct: number
+  amount: number
+  invoice: typeof supplierInvoices.$inferSelect
+  allocations: {
+    id: string
+    percentage: number
+    activityId: string | null
+    funderId: string | null
+  }[]
+  categoryIds: string[]
+}
+
+export type BillingPayrollLine = {
+  kind: "nomina"
+  date: string
+  concept: string
+  detail: string
+  cost: number
+  projectPct: number
+  clientPct: number
+  amount: number
+  payrollId: string
+  month: string
+  allocations: {
+    id: string
+    percentage: number
+    costType: CostType
+    categoryIds: string[]
+    activityId: string | null
+    funderId: string | null
+  }[]
+}
+
+export type BillingLine = BillingInvoiceLine | BillingPayrollLine
+
+async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
+  const uniqueInvoices = [...new Set(invoiceIds)]
+  const uniqueEntries = [...new Set(entryIds)]
+
+  const [invAllocs, invCats, payAllocs, payCats] = await Promise.all([
+    uniqueInvoices.length === 0
+      ? Promise.resolve(
+          [] as {
+            invoiceId: string
+            projectId: string
+            percentage: number
+            activityId: string | null
+            clientId: string | null
+            subsidyId: string | null
+          }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceProjects.invoiceId,
+            projectId: invoiceProjects.projectId,
+            percentage: invoiceProjects.percentage,
+            activityId: invoiceProjects.activityId,
+            clientId: invoiceProjects.clientId,
+            subsidyId: invoiceProjects.subsidyId,
+          })
+          .from(invoiceProjects)
+          .where(inArray(invoiceProjects.invoiceId, uniqueInvoices)),
+    uniqueInvoices.length === 0
+      ? Promise.resolve([] as { invoiceId: string; categoryId: string }[])
+      : db
+          .select({
+            invoiceId: invoiceCategories.invoiceId,
+            categoryId: invoiceCategories.categoryId,
+          })
+          .from(invoiceCategories)
+          .where(inArray(invoiceCategories.invoiceId, uniqueInvoices)),
+    uniqueEntries.length === 0
+      ? Promise.resolve(
+          [] as {
+            entryId: string
+            projectId: string
+            percentage: number
+            costType: CostType
+            activityId: string | null
+            clientId: string | null
+            subsidyId: string | null
+            allocationId: string
+          }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryProjects.entryId,
+            projectId: payrollEntryProjects.projectId,
+            percentage: payrollEntryProjects.percentage,
+            costType: payrollEntryProjects.costType,
+            activityId: payrollEntryProjects.activityId,
+            clientId: payrollEntryProjects.clientId,
+            subsidyId: payrollEntryProjects.subsidyId,
+            allocationId: payrollEntryProjects.id,
+          })
+          .from(payrollEntryProjects)
+          .where(inArray(payrollEntryProjects.entryId, uniqueEntries)),
+    uniqueEntries.length === 0
+      ? Promise.resolve(
+          [] as { allocationId: string; categoryId: string }[]
+        )
+      : db
+          .select({
+            allocationId: payrollEntryProjectCategories.allocationId,
+            categoryId: payrollEntryProjectCategories.categoryId,
+          })
+          .from(payrollEntryProjectCategories)
+          .innerJoin(
+            payrollEntryProjects,
+            eq(payrollEntryProjects.id, payrollEntryProjectCategories.allocationId)
+          )
+          .where(inArray(payrollEntryProjects.entryId, uniqueEntries)),
+  ])
+
+  const invoiceAllocations = new Map<
+    string,
+    BillingInvoiceLine["allocations"]
+  >()
+  for (const a of invAllocs) {
+    const list = invoiceAllocations.get(a.invoiceId) ?? []
+    list.push({
+      id: a.projectId,
+      percentage: a.percentage,
+      activityId: a.activityId,
+      funderId: funderKeyFromColumns(a.clientId, a.subsidyId),
+    })
+    invoiceAllocations.set(a.invoiceId, list)
+  }
+
+  const invoiceCategoryIds = new Map<string, string[]>()
+  for (const c of invCats) {
+    const list = invoiceCategoryIds.get(c.invoiceId) ?? []
+    list.push(c.categoryId)
+    invoiceCategoryIds.set(c.invoiceId, list)
+  }
+
+  const catsByAllocation = new Map<string, string[]>()
+  for (const c of payCats) {
+    const list = catsByAllocation.get(c.allocationId) ?? []
+    list.push(c.categoryId)
+    catsByAllocation.set(c.allocationId, list)
+  }
+
+  const payrollAllocations = new Map<
+    string,
+    BillingPayrollLine["allocations"]
+  >()
+  for (const a of payAllocs) {
+    const list = payrollAllocations.get(a.entryId) ?? []
+    list.push({
+      id: a.projectId,
+      percentage: a.percentage,
+      costType: a.costType,
+      categoryIds: catsByAllocation.get(a.allocationId) ?? [],
+      activityId: a.activityId,
+      funderId: funderKeyFromColumns(a.clientId, a.subsidyId),
+    })
+    payrollAllocations.set(a.entryId, list)
+  }
+
+  return { invoiceAllocations, invoiceCategoryIds, payrollAllocations }
+}
+
 /**
  * Imports que s'haurien de facturar a un client en un període:
  * per a cada projecte del client, costos del període × % del client.
@@ -1098,6 +1269,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
           percentage: payrollEntryProjects.percentage,
           clientId: payrollEntryProjects.clientId,
           subsidyId: payrollEntryProjects.subsidyId,
+          entryId: payrollEntries.id,
           month: payrollEntries.month,
           amount: payrollEntries.amount,
           personName: payrolls.personName,
@@ -1133,22 +1305,10 @@ export async function getClientBilling(clientId: string, from: string, to: strin
   const subsidyClientPct = new Map(subsidyShares.map((s) => [s.subsidyId, s.percentage]))
   const projectsWithActivities = new Set(activityProjects.map((r) => r.projectId))
 
-  type Line = {
-    kind: "factura" | "nomina"
-    date: string
-    concept: string
-    detail: string
-    cost: number
-    projectPct: number
-    clientPct: number
-    amount: number
-    href: string | null
-  }
-
   const result = links.map((l) => ({
     project: l.project,
     clientPct: l.percentage,
-    lines: [] as Line[],
+    lines: [] as BillingLine[],
     invoices: 0,
     payroll: 0,
     total: 0,
@@ -1158,6 +1318,26 @@ export async function getClientBilling(clientId: string, from: string, to: strin
     hasActivities: projectsWithActivities.has(l.project.id),
   }))
   const byId = new Map(result.map((r) => [r.project.id, r]))
+
+  const pendingInvoices: {
+    group: (typeof result)[number]
+    invoice: (typeof invRows)[number]["invoice"]
+    projectPct: number
+    clientPct: number
+    amount: number
+    cost: number
+  }[] = []
+  const pendingPayroll: {
+    group: (typeof result)[number]
+    entryId: string
+    payrollId: string
+    month: string
+    personName: string
+    projectPct: number
+    clientPct: number
+    amount: number
+    cost: number
+  }[] = []
 
   for (const r of invRows) {
     const g = byId.get(r.projectId)!
@@ -1170,16 +1350,13 @@ export async function getClientBilling(clientId: string, from: string, to: strin
     if (share <= 0) continue
     const cost = invoiceCost(r.invoice)
     const amount = round2((cost * r.percentage * share) / 10000)
-    g.lines.push({
-      kind: "factura",
-      date: r.invoice.issueDate,
-      concept: `${r.invoice.supplierName} · ${r.invoice.number}`,
-      detail: r.invoice.description ?? "",
-      cost,
+    pendingInvoices.push({
+      group: g,
+      invoice: r.invoice,
       projectPct: r.percentage,
       clientPct: share,
       amount,
-      href: r.invoice.supplierId ? `/proveidors/${r.invoice.supplierId}` : `/projectes/${r.projectId}`,
+      cost,
     })
     g.invoices = round2(g.invoices + amount)
   }
@@ -1193,19 +1370,56 @@ export async function getClientBilling(clientId: string, from: string, to: strin
     )
     if (share <= 0) continue
     const amount = round2((r.amount * r.percentage * share) / 10000)
-    g.lines.push({
-      kind: "nomina",
-      date: r.month,
-      concept: `Nòmina · ${r.personName}`,
-      detail: "",
-      cost: r.amount,
+    pendingPayroll.push({
+      group: g,
+      entryId: r.entryId,
+      payrollId: r.payrollId,
+      month: r.month,
+      personName: r.personName,
       projectPct: r.percentage,
       clientPct: share,
       amount,
-      href: `/nomines/${r.payrollId}`,
+      cost: r.amount,
     })
     g.payroll = round2(g.payroll + amount)
   }
+
+  const edits = await loadBillingLineEdits(
+    pendingInvoices.map((p) => p.invoice.id),
+    pendingPayroll.map((p) => p.entryId)
+  )
+
+  for (const p of pendingInvoices) {
+    p.group.lines.push({
+      kind: "factura",
+      date: p.invoice.issueDate,
+      concept: `${p.invoice.supplierName} · ${p.invoice.number}`,
+      detail: p.invoice.description ?? "",
+      cost: p.cost,
+      projectPct: p.projectPct,
+      clientPct: p.clientPct,
+      amount: p.amount,
+      invoice: p.invoice,
+      allocations: edits.invoiceAllocations.get(p.invoice.id) ?? [],
+      categoryIds: edits.invoiceCategoryIds.get(p.invoice.id) ?? [],
+    })
+  }
+  for (const p of pendingPayroll) {
+    p.group.lines.push({
+      kind: "nomina",
+      date: p.month,
+      concept: `Nòmina · ${p.personName}`,
+      detail: "",
+      cost: p.cost,
+      projectPct: p.projectPct,
+      clientPct: p.clientPct,
+      amount: p.amount,
+      payrollId: p.payrollId,
+      month: p.month,
+      allocations: edits.payrollAllocations.get(p.entryId) ?? [],
+    })
+  }
+
   for (const g of result) {
     g.total = round2(g.invoices + g.payroll)
     g.lines.sort((a, b) => a.date.localeCompare(b.date))
@@ -1268,6 +1482,7 @@ export async function getSubsidyBilling(subsidyId: string) {
           percentage: payrollEntryProjects.percentage,
           clientId: payrollEntryProjects.clientId,
           subsidyId: payrollEntryProjects.subsidyId,
+          entryId: payrollEntries.id,
           month: payrollEntries.month,
           amount: payrollEntries.amount,
           personName: payrolls.personName,
@@ -1289,22 +1504,10 @@ export async function getSubsidyBilling(subsidyId: string) {
 
   const projectsWithActivities = new Set(activityProjects.map((r) => r.projectId))
 
-  type Line = {
-    kind: "factura" | "nomina"
-    date: string
-    concept: string
-    detail: string
-    cost: number
-    projectPct: number
-    clientPct: number
-    amount: number
-    href: string | null
-  }
-
   const result = links.map((l) => ({
     project: l.project,
     clientPct: l.percentage,
-    lines: [] as Line[],
+    lines: [] as BillingLine[],
     invoices: 0,
     payroll: 0,
     total: 0,
@@ -1315,22 +1518,39 @@ export async function getSubsidyBilling(subsidyId: string) {
   }))
   const byId = new Map(result.map((r) => [r.project.id, r]))
 
+  const pendingInvoices: {
+    group: (typeof result)[number]
+    invoice: (typeof invRows)[number]["invoice"]
+    projectPct: number
+    clientPct: number
+    amount: number
+    cost: number
+  }[] = []
+  const pendingPayroll: {
+    group: (typeof result)[number]
+    entryId: string
+    payrollId: string
+    month: string
+    personName: string
+    projectPct: number
+    clientPct: number
+    amount: number
+    cost: number
+  }[] = []
+
   for (const r of invRows) {
     const g = byId.get(r.projectId)!
     const share = subsidyShareOfAllocation(subsidyId, r, pct.get(r.projectId)!)
     if (share <= 0) continue
     const cost = invoiceCost(r.invoice)
     const amount = round2((cost * r.percentage * share) / 10000)
-    g.lines.push({
-      kind: "factura",
-      date: r.invoice.issueDate,
-      concept: `${r.invoice.supplierName} · ${r.invoice.number}`,
-      detail: r.invoice.description ?? "",
-      cost,
+    pendingInvoices.push({
+      group: g,
+      invoice: r.invoice,
       projectPct: r.percentage,
       clientPct: share,
       amount,
-      href: r.invoice.supplierId ? `/proveidors/${r.invoice.supplierId}` : `/projectes/${r.projectId}`,
+      cost,
     })
     g.invoices = round2(g.invoices + amount)
   }
@@ -1339,19 +1559,56 @@ export async function getSubsidyBilling(subsidyId: string) {
     const share = subsidyShareOfAllocation(subsidyId, r, pct.get(r.projectId)!)
     if (share <= 0) continue
     const amount = round2((r.amount * r.percentage * share) / 10000)
-    g.lines.push({
-      kind: "nomina",
-      date: r.month,
-      concept: `Nòmina · ${r.personName}`,
-      detail: "",
-      cost: r.amount,
+    pendingPayroll.push({
+      group: g,
+      entryId: r.entryId,
+      payrollId: r.payrollId,
+      month: r.month,
+      personName: r.personName,
       projectPct: r.percentage,
       clientPct: share,
       amount,
-      href: `/nomines/${r.payrollId}`,
+      cost: r.amount,
     })
     g.payroll = round2(g.payroll + amount)
   }
+
+  const edits = await loadBillingLineEdits(
+    pendingInvoices.map((p) => p.invoice.id),
+    pendingPayroll.map((p) => p.entryId)
+  )
+
+  for (const p of pendingInvoices) {
+    p.group.lines.push({
+      kind: "factura",
+      date: p.invoice.issueDate,
+      concept: `${p.invoice.supplierName} · ${p.invoice.number}`,
+      detail: p.invoice.description ?? "",
+      cost: p.cost,
+      projectPct: p.projectPct,
+      clientPct: p.clientPct,
+      amount: p.amount,
+      invoice: p.invoice,
+      allocations: edits.invoiceAllocations.get(p.invoice.id) ?? [],
+      categoryIds: edits.invoiceCategoryIds.get(p.invoice.id) ?? [],
+    })
+  }
+  for (const p of pendingPayroll) {
+    p.group.lines.push({
+      kind: "nomina",
+      date: p.month,
+      concept: `Nòmina · ${p.personName}`,
+      detail: "",
+      cost: p.cost,
+      projectPct: p.projectPct,
+      clientPct: p.clientPct,
+      amount: p.amount,
+      payrollId: p.payrollId,
+      month: p.month,
+      allocations: edits.payrollAllocations.get(p.entryId) ?? [],
+    })
+  }
+
   for (const g of result) {
     g.total = round2(g.invoices + g.payroll)
     g.lines.sort((a, b) => a.date.localeCompare(b.date))

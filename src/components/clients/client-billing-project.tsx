@@ -3,7 +3,10 @@
 import { ChevronRightIcon } from "lucide-react";
 
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button";
-import { InteractiveTableRow } from "@/components/app/interactive-table-row";
+import {
+  BillingPartidaRow,
+  type BillingEditOptions,
+} from "@/components/clients/billing-partida-row";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -20,7 +23,7 @@ import {
   clientBillingFilename,
 } from "@/lib/exports/billing";
 import { COST_TYPE_LABELS } from "@/lib/cost-type";
-import { formatDate, formatEuro, formatMonth, formatPct } from "@/lib/format";
+import { formatEuro, formatPct } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ClientBillingProject } from "@/server/queries";
 
@@ -36,6 +39,7 @@ export function ClientBillingProjectPanel({
   emptyActivityMessage = "Cap cost amb activitats en aquest període.",
   filename,
   getSheets,
+  edit,
 }: {
   group: ClientBillingProject;
   clientName: string;
@@ -48,6 +52,7 @@ export function ClientBillingProjectPanel({
   emptyActivityMessage?: string;
   filename?: string;
   getSheets?: () => ReturnType<typeof buildClientBillingSheets>;
+  edit: BillingEditOptions;
 }) {
   const showActivityTab =
     group.hasActivities && group.activityTotals.some((row) => row.id != null);
@@ -111,42 +116,15 @@ export function ClientBillingProjectPanel({
               </TableHeader>
               <TableBody>
                 {group.lines.map((l, i) => (
-                  <InteractiveTableRow key={i} href={l.href ?? undefined}>
-                    <TableCell className="pl-4 whitespace-nowrap">
-                      {l.kind === "nomina"
-                        ? formatMonth(l.date, true)
-                        : formatDate(l.date)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Badge
-                          variant={
-                            l.kind === "nomina" ? "secondary" : "outline"
-                          }
-                        >
-                          {l.kind === "nomina" ? "Nòmina" : "Factura"}
-                        </Badge>
-                        <span>{l.concept}</span>
-                      </div>
-                      {l.detail && (
-                        <p className="text-xs text-muted-foreground">
-                          {l.detail}
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatEuro(l.cost)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatPct(l.projectPct)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatPct(l.clientPct)}
-                    </TableCell>
-                    <TableCell className="pr-4 text-right font-medium tabular-nums">
-                      {formatEuro(l.amount)}
-                    </TableCell>
-                  </InteractiveTableRow>
+                  <BillingPartidaRow
+                    key={
+                      l.kind === "factura"
+                        ? `${l.invoice.id}-${i}`
+                        : `${l.payrollId}-${l.month}-${i}`
+                    }
+                    line={l}
+                    edit={edit}
+                  />
                 ))}
               </TableBody>
             </Table>

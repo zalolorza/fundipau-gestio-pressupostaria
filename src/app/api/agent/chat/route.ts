@@ -83,5 +83,19 @@ export async function POST(req: Request) {
     },
   })
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse({
+    // Per defecte l'SDK amaga el detall ("An error occurred."); el mostrem
+    // perquè l'usuària el pugui reportar.
+    onError: (error) => {
+      console.error("[agent/chat]", error)
+      if (error == null) return "Error desconegut"
+      if (typeof error === "string") return error
+      if (error instanceof Error && error.message) return error.message
+      try {
+        return JSON.stringify(error)
+      } catch {
+        return String(error)
+      }
+    },
+  })
 }

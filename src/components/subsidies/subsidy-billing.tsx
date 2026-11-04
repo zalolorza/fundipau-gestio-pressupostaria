@@ -1,6 +1,7 @@
 "use client"
 
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button"
+import type { BillingEditOptions } from "@/components/clients/billing-partida-row"
 import { ClientBillingProjectPanel } from "@/components/clients/client-billing-project"
 import {
   buildSubsidyBillingSheets,
@@ -13,10 +14,12 @@ export function SubsidyBilling({
   subsidyName,
   projects,
   total,
+  edit,
 }: {
   subsidyName: string
   projects: SubsidyBillingProject[]
   total: number
+  edit: BillingEditOptions
 }) {
   return (
     <div className="space-y-4">
@@ -57,6 +60,7 @@ export function SubsidyBilling({
             getSheets={() =>
               buildSubsidyBillingSheets([g], { withProjectColumn: false })
             }
+            edit={edit}
           />
         ))}
       </div>

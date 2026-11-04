@@ -17,7 +17,18 @@ import {
 } from "@/components/ui/card";
 import { formatPct } from "@/lib/format";
 import { addMonths, currentMonth } from "@/lib/months";
-import { getClient, getClientBilling, getClientProjectLinks } from "@/server/queries";
+import {
+  activitiesByProjectMap,
+  fundersByProjectMap,
+  getClient,
+  getClientBilling,
+  getClientProjectLinks,
+  getProjectOptions,
+  getSupplierOptions,
+  listCategories,
+  listProjectActivities,
+  listProjectFunders,
+} from "@/server/queries";
 
 export async function generateMetadata({
   params,
@@ -196,13 +207,34 @@ async function Billing({
   from: string;
   to: string;
 }) {
-  const billing = await getClientBilling(clientId, from, to);
+  const [billing, projects, suppliers, categories, activities, funders] =
+    await Promise.all([
+      getClientBilling(clientId, from, to),
+      getProjectOptions(),
+      getSupplierOptions(),
+      listCategories(),
+      listProjectActivities(),
+      listProjectFunders(),
+    ]);
   if (billing.projects.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
         Aquest client no té cap projecte assignat.
       </p>
     );
+
+  const today = new Date().toISOString().slice(0, 10);
+  const edit = {
+    projectOptions: projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      hint: p.closedAt && p.closedAt < today ? "tancat" : undefined,
+    })),
+    activitiesByProject: activitiesByProjectMap(activities),
+    fundersByProject: fundersByProjectMap(funders),
+    suppliers,
+    categories: categories.map((c) => ({ id: c.id, name: c.name })),
+  };
 
   return (
     <ClientBilling
@@ -211,6 +243,7 @@ async function Billing({
       to={to}
       projects={billing.projects}
       total={billing.total}
+      edit={edit}
     />
   );
 }

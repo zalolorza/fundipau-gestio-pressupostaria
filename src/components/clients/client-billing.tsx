@@ -1,6 +1,7 @@
 "use client"
 
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button"
+import type { BillingEditOptions } from "@/components/clients/billing-partida-row"
 import { ClientBillingProjectPanel } from "@/components/clients/client-billing-project"
 import {
   buildClientBillingSheets,
@@ -15,12 +16,14 @@ export function ClientBilling({
   to,
   projects,
   total,
+  edit,
 }: {
   clientName: string
   from: string
   to: string
   projects: ClientBillingProject[]
   total: number
+  edit: BillingEditOptions
 }) {
   return (
     <div className="space-y-4">
@@ -56,6 +59,7 @@ export function ClientBilling({
             clientName={clientName}
             from={from}
             to={to}
+            edit={edit}
           />
         ))}
       </div>
