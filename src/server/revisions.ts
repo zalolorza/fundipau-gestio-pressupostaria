@@ -9,8 +9,10 @@ import {
   clients,
   entityRevisions,
   invoiceCategories,
+  invoiceFunders,
   invoiceProjects,
   payrollEntries,
+  payrollEntryFunders,
   payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
@@ -46,14 +48,20 @@ type InvoiceAllocationSnap = {
   projectId: string
   percentage: number
   activityId: string | null
+}
+
+type InvoiceFunderSnap = {
+  id: string
   clientId: string | null
   subsidyId: string | null
+  percentage: number
 }
 
 type InvoiceSnapshot = {
   invoice: typeof supplierInvoices.$inferSelect
   categoryIds: string[]
   allocations: InvoiceAllocationSnap[]
+  funders: InvoiceFunderSnap[]
 }
 
 type PayrollAllocationSnap = {
@@ -62,14 +70,20 @@ type PayrollAllocationSnap = {
   percentage: number
   costType: CostType
   activityId: string | null
+  categoryIds: string[]
+}
+
+type PayrollFunderSnap = {
+  id: string
   clientId: string | null
   subsidyId: string | null
-  categoryIds: string[]
+  percentage: number
 }
 
 type PayrollEntrySnapshot = {
   entry: typeof payrollEntries.$inferSelect
   allocations: PayrollAllocationSnap[]
+  funders: PayrollFunderSnap[]
 }
 
 type PayrollSnapshot = {
@@ -90,16 +104,16 @@ type SubsidySnapshot = {
   subsidy: typeof subsidies.$inferSelect
   clients: { clientId: string; percentage: number }[]
   projectLinks: { projectId: string; percentage: number }[]
-  invoiceFunderAllocations: (InvoiceAllocationSnap & { invoiceId: string })[]
-  payrollFunderAllocations: (PayrollAllocationSnap & { entryId: string })[]
+  invoiceFunderAllocations: (InvoiceFunderSnap & { invoiceId: string })[]
+  payrollFunderAllocations: (PayrollFunderSnap & { entryId: string })[]
 }
 
 type ClientSnapshot = {
   client: typeof clients.$inferSelect
   projectLinks: { projectId: string; percentage: number }[]
   subsidyLinks: { subsidyId: string; percentage: number }[]
-  invoiceFunderAllocations: (InvoiceAllocationSnap & { invoiceId: string })[]
-  payrollFunderAllocations: (PayrollAllocationSnap & { entryId: string })[]
+  invoiceFunderAllocations: (InvoiceFunderSnap & { invoiceId: string })[]
+  payrollFunderAllocations: (PayrollFunderSnap & { entryId: string })[]
 }
 
 export type EntitySnapshot =
@@ -123,12 +137,22 @@ async function loadInvoiceAllocations(invoiceId: string): Promise<InvoiceAllocat
       projectId: invoiceProjects.projectId,
       percentage: invoiceProjects.percentage,
       activityId: invoiceProjects.activityId,
-      clientId: invoiceProjects.clientId,
-      subsidyId: invoiceProjects.subsidyId,
     })
     .from(invoiceProjects)
     .where(eq(invoiceProjects.invoiceId, invoiceId))
   return rows
+}
+
+async function loadInvoiceFunders(invoiceId: string): Promise<InvoiceFunderSnap[]> {
+  return db
+    .select({
+      id: invoiceFunders.id,
+      clientId: invoiceFunders.clientId,
+      subsidyId: invoiceFunders.subsidyId,
+      percentage: invoiceFunders.percentage,
+    })
+    .from(invoiceFunders)
+    .where(eq(invoiceFunders.invoiceId, invoiceId))
 }
 
 async function loadPayrollAllocations(entryId: string): Promise<PayrollAllocationSnap[]> {
@@ -142,10 +166,20 @@ async function loadPayrollAllocations(entryId: string): Promise<PayrollAllocatio
     percentage: r.percentage,
     costType: r.costType,
     activityId: r.activityId,
-    clientId: r.clientId,
-    subsidyId: r.subsidyId,
     categoryIds: r.categories.map((c) => c.categoryId),
   }))
+}
+
+async function loadPayrollFunders(entryId: string): Promise<PayrollFunderSnap[]> {
+  return db
+    .select({
+      id: payrollEntryFunders.id,
+      clientId: payrollEntryFunders.clientId,
+      subsidyId: payrollEntryFunders.subsidyId,
+      percentage: payrollEntryFunders.percentage,
+    })
+    .from(payrollEntryFunders)
+    .where(eq(payrollEntryFunders.entryId, entryId))
 }
 
 export async function loadInvoiceSnapshot(invoiceId: string): Promise<InvoiceSnapshot | null> {
@@ -153,17 +187,19 @@ export async function loadInvoiceSnapshot(invoiceId: string): Promise<InvoiceSna
     where: eq(supplierInvoices.id, invoiceId),
   })
   if (!invoice) return null
-  const [cats, allocations] = await Promise.all([
+  const [cats, allocations, funders] = await Promise.all([
     db
       .select({ categoryId: invoiceCategories.categoryId })
       .from(invoiceCategories)
       .where(eq(invoiceCategories.invoiceId, invoiceId)),
     loadInvoiceAllocations(invoiceId),
+    loadInvoiceFunders(invoiceId),
   ])
   return {
     invoice,
     categoryIds: cats.map((c) => c.categoryId),
     allocations,
+    funders,
   }
 }
 
@@ -174,7 +210,11 @@ export async function loadPayrollEntrySnapshot(
     where: eq(payrollEntries.id, entryId),
   })
   if (!entry) return null
-  return { entry, allocations: await loadPayrollAllocations(entryId) }
+  const [allocations, funders] = await Promise.all([
+    loadPayrollAllocations(entryId),
+    loadPayrollFunders(entryId),
+  ])
+  return { entry, allocations, funders }
 }
 
 export async function loadPayrollSnapshot(payrollId: string): Promise<PayrollSnapshot | null> {
@@ -186,10 +226,13 @@ export async function loadPayrollSnapshot(payrollId: string): Promise<PayrollSna
     where: eq(payrollEntries.payrollId, payrollId),
   })
   const withAlloc = await Promise.all(
-    entries.map(async (entry) => ({
-      entry,
-      allocations: await loadPayrollAllocations(entry.id),
-    }))
+    entries.map(async (entry) => {
+      const [allocations, funders] = await Promise.all([
+        loadPayrollAllocations(entry.id),
+        loadPayrollFunders(entry.id),
+      ])
+      return { entry, allocations, funders }
+    })
   )
   return { payroll, entries: withAlloc }
 }
@@ -225,8 +268,6 @@ export async function loadProjectSnapshot(projectId: string): Promise<ProjectSna
         projectId: invoiceProjects.projectId,
         percentage: invoiceProjects.percentage,
         activityId: invoiceProjects.activityId,
-        clientId: invoiceProjects.clientId,
-        subsidyId: invoiceProjects.subsidyId,
       })
       .from(invoiceProjects)
       .where(eq(invoiceProjects.projectId, projectId)),
@@ -249,8 +290,6 @@ export async function loadProjectSnapshot(projectId: string): Promise<ProjectSna
       percentage: r.percentage,
       costType: r.costType,
       activityId: r.activityId,
-      clientId: r.clientId,
-      subsidyId: r.subsidyId,
       categoryIds: r.categories.map((c) => c.categoryId),
     })),
   }
@@ -262,7 +301,7 @@ export async function loadSubsidySnapshot(subsidyId: string): Promise<SubsidySna
   })
   if (!subsidy) return null
 
-  const [clientRows, projectRows, invAllocs, payAllocs] = await Promise.all([
+  const [clientRows, projectRows, invFunders, payFunders] = await Promise.all([
     db
       .select({
         clientId: subsidyClients.clientId,
@@ -279,38 +318,32 @@ export async function loadSubsidySnapshot(subsidyId: string): Promise<SubsidySna
       .where(eq(projectSubsidies.subsidyId, subsidyId)),
     db
       .select({
-        id: invoiceProjects.id,
-        invoiceId: invoiceProjects.invoiceId,
-        projectId: invoiceProjects.projectId,
-        percentage: invoiceProjects.percentage,
-        activityId: invoiceProjects.activityId,
-        clientId: invoiceProjects.clientId,
-        subsidyId: invoiceProjects.subsidyId,
+        id: invoiceFunders.id,
+        invoiceId: invoiceFunders.invoiceId,
+        clientId: invoiceFunders.clientId,
+        subsidyId: invoiceFunders.subsidyId,
+        percentage: invoiceFunders.percentage,
       })
-      .from(invoiceProjects)
-      .where(eq(invoiceProjects.subsidyId, subsidyId)),
-    db.query.payrollEntryProjects.findMany({
-      where: eq(payrollEntryProjects.subsidyId, subsidyId),
-      with: { categories: true },
-    }),
+      .from(invoiceFunders)
+      .where(eq(invoiceFunders.subsidyId, subsidyId)),
+    db
+      .select({
+        id: payrollEntryFunders.id,
+        entryId: payrollEntryFunders.entryId,
+        clientId: payrollEntryFunders.clientId,
+        subsidyId: payrollEntryFunders.subsidyId,
+        percentage: payrollEntryFunders.percentage,
+      })
+      .from(payrollEntryFunders)
+      .where(eq(payrollEntryFunders.subsidyId, subsidyId)),
   ])
 
   return {
     subsidy,
     clients: clientRows,
     projectLinks: projectRows,
-    invoiceFunderAllocations: invAllocs,
-    payrollFunderAllocations: payAllocs.map((r) => ({
-      id: r.id,
-      entryId: r.entryId,
-      projectId: r.projectId,
-      percentage: r.percentage,
-      costType: r.costType,
-      activityId: r.activityId,
-      clientId: r.clientId,
-      subsidyId: r.subsidyId,
-      categoryIds: r.categories.map((c) => c.categoryId),
-    })),
+    invoiceFunderAllocations: invFunders,
+    payrollFunderAllocations: payFunders,
   }
 }
 
@@ -320,7 +353,7 @@ export async function loadClientSnapshot(clientId: string): Promise<ClientSnapsh
   })
   if (!client) return null
 
-  const [projectRows, subsidyRows, invAllocs, payAllocs] = await Promise.all([
+  const [projectRows, subsidyRows, invFunders, payFunders] = await Promise.all([
     db
       .select({
         projectId: projectClients.projectId,
@@ -337,38 +370,32 @@ export async function loadClientSnapshot(clientId: string): Promise<ClientSnapsh
       .where(eq(subsidyClients.clientId, clientId)),
     db
       .select({
-        id: invoiceProjects.id,
-        invoiceId: invoiceProjects.invoiceId,
-        projectId: invoiceProjects.projectId,
-        percentage: invoiceProjects.percentage,
-        activityId: invoiceProjects.activityId,
-        clientId: invoiceProjects.clientId,
-        subsidyId: invoiceProjects.subsidyId,
+        id: invoiceFunders.id,
+        invoiceId: invoiceFunders.invoiceId,
+        clientId: invoiceFunders.clientId,
+        subsidyId: invoiceFunders.subsidyId,
+        percentage: invoiceFunders.percentage,
       })
-      .from(invoiceProjects)
-      .where(eq(invoiceProjects.clientId, clientId)),
-    db.query.payrollEntryProjects.findMany({
-      where: eq(payrollEntryProjects.clientId, clientId),
-      with: { categories: true },
-    }),
+      .from(invoiceFunders)
+      .where(eq(invoiceFunders.clientId, clientId)),
+    db
+      .select({
+        id: payrollEntryFunders.id,
+        entryId: payrollEntryFunders.entryId,
+        clientId: payrollEntryFunders.clientId,
+        subsidyId: payrollEntryFunders.subsidyId,
+        percentage: payrollEntryFunders.percentage,
+      })
+      .from(payrollEntryFunders)
+      .where(eq(payrollEntryFunders.clientId, clientId)),
   ])
 
   return {
     client,
     projectLinks: projectRows,
     subsidyLinks: subsidyRows,
-    invoiceFunderAllocations: invAllocs,
-    payrollFunderAllocations: payAllocs.map((r) => ({
-      id: r.id,
-      entryId: r.entryId,
-      projectId: r.projectId,
-      percentage: r.percentage,
-      costType: r.costType,
-      activityId: r.activityId,
-      clientId: r.clientId,
-      subsidyId: r.subsidyId,
-      categoryIds: r.categories.map((c) => c.categoryId),
-    })),
+    invoiceFunderAllocations: invFunders,
+    payrollFunderAllocations: payFunders,
   }
 }
 
@@ -460,8 +487,22 @@ async function insertInvoiceAllocations(
       projectId: a.projectId,
       percentage: a.percentage,
       activityId: a.activityId,
-      clientId: a.clientId,
-      subsidyId: a.subsidyId,
+    }))
+  )
+}
+
+async function insertInvoiceFundersForInvoice(
+  invoiceId: string,
+  funders: Omit<InvoiceFunderSnap, "id">[]
+) {
+  await db.delete(invoiceFunders).where(eq(invoiceFunders.invoiceId, invoiceId))
+  if (!funders.length) return
+  await db.insert(invoiceFunders).values(
+    funders.map((f) => ({
+      invoiceId,
+      percentage: f.percentage,
+      clientId: f.clientId,
+      subsidyId: f.subsidyId,
     }))
   )
 }
@@ -481,8 +522,6 @@ async function insertPayrollAllocationsForEntry(
         percentage: a.percentage,
         costType: a.costType,
         activityId: a.activityId,
-        clientId: a.clientId,
-        subsidyId: a.subsidyId,
       }))
     )
     .returning({ id: payrollEntryProjects.id })
@@ -495,8 +534,24 @@ async function insertPayrollAllocationsForEntry(
   if (catRows.length) await db.insert(payrollEntryProjectCategories).values(catRows)
 }
 
+async function insertPayrollFundersForEntry(
+  entryId: string,
+  funders: Omit<PayrollFunderSnap, "id">[]
+) {
+  await db.delete(payrollEntryFunders).where(eq(payrollEntryFunders.entryId, entryId))
+  if (!funders.length) return
+  await db.insert(payrollEntryFunders).values(
+    funders.map((f) => ({
+      entryId,
+      percentage: f.percentage,
+      clientId: f.clientId,
+      subsidyId: f.subsidyId,
+    }))
+  )
+}
+
 async function applyInvoiceSnapshot(snap: InvoiceSnapshot) {
-  const { invoice, categoryIds, allocations } = snap
+  const { invoice, categoryIds, allocations, funders } = snap
   const existing = await db.query.supplierInvoices.findFirst({
     where: eq(supplierInvoices.id, invoice.id),
     columns: { id: true },
@@ -517,10 +572,14 @@ async function applyInvoiceSnapshot(snap: InvoiceSnapshot) {
     id,
     allocations.map(({ id: _aid, ...rest }) => rest)
   )
+  await insertInvoiceFundersForInvoice(
+    id,
+    (funders ?? []).map(({ id: _fid, ...rest }) => rest)
+  )
 }
 
 async function applyPayrollEntrySnapshot(snap: PayrollEntrySnapshot) {
-  const { entry, allocations } = snap
+  const { entry, allocations, funders } = snap
   const existing = await db.query.payrollEntries.findFirst({
     where: eq(payrollEntries.id, entry.id),
     columns: { id: true },
@@ -534,6 +593,10 @@ async function applyPayrollEntrySnapshot(snap: PayrollEntrySnapshot) {
   await insertPayrollAllocationsForEntry(
     id,
     allocations.map(({ id: _aid, ...rest }) => rest)
+  )
+  await insertPayrollFundersForEntry(
+    id,
+    (funders ?? []).map(({ id: _fid, ...rest }) => rest)
   )
 }
 
@@ -630,8 +693,6 @@ async function applyProjectSnapshot(snap: ProjectSnapshot, warnings: string[]) {
           projectId: id,
           percentage: a.percentage,
           activityId: a.activityId,
-          clientId: a.clientId,
-          subsidyId: a.subsidyId,
         }))
       )
     }
@@ -662,8 +723,6 @@ async function applyProjectSnapshot(snap: ProjectSnapshot, warnings: string[]) {
             percentage: a.percentage,
             costType: a.costType,
             activityId: a.activityId,
-            clientId: a.clientId,
-            subsidyId: a.subsidyId,
           }))
         )
         .returning({ id: payrollEntryProjects.id })
@@ -729,94 +788,58 @@ async function applySubsidySnapshot(snap: SubsidySnapshot, warnings: string[]) {
     }
   }
 
-  // Restaura funders a assignacions que apuntaven a aquesta subvenció
-  for (const a of snap.invoiceFunderAllocations) {
-    const inv = await db.query.supplierInvoices.findFirst({
-      where: eq(supplierInvoices.id, a.invoiceId),
-      columns: { id: true },
+  // Restaura assignacions explícites de finançador a aquesta subvenció
+  await db.delete(invoiceFunders).where(eq(invoiceFunders.subsidyId, id))
+  const invoiceIds = [...new Set(snap.invoiceFunderAllocations.map((a) => a.invoiceId))]
+  if (invoiceIds.length) {
+    const existingInvoices = await db
+      .select({ id: supplierInvoices.id })
+      .from(supplierInvoices)
+      .where(inArray(supplierInvoices.id, invoiceIds))
+    const ok = new Set(existingInvoices.map((r) => r.id))
+    const toInsert = snap.invoiceFunderAllocations.filter((a) => {
+      if (!ok.has(a.invoiceId)) {
+        warnings.push(`Factura ${a.invoiceId} inexistent; no es restaura el finançador`)
+        return false
+      }
+      return true
     })
-    if (!inv) {
-      warnings.push(`Factura ${a.invoiceId} inexistent; no es restaura el finançador`)
-      continue
-    }
-    // Busca una fila similar (mateix projecte/%) sense subsidy, o inserix-ne una
-    // Més simple: actualitza files existents amb mateix projectId a la factura si en tenen
-    // Amb UUID regenerats, millor: assegura una assignació amb aquests camps
-    const match = await db.query.invoiceProjects.findFirst({
-      where: and(
-        eq(invoiceProjects.invoiceId, a.invoiceId),
-        eq(invoiceProjects.projectId, a.projectId),
-        eq(invoiceProjects.percentage, a.percentage)
-      ),
-    })
-    if (match) {
-      await db
-        .update(invoiceProjects)
-        .set({
-          activityId: a.activityId,
-          clientId: a.clientId,
+    if (toInsert.length) {
+      await db.insert(invoiceFunders).values(
+        toInsert.map((a) => ({
+          invoiceId: a.invoiceId,
+          percentage: a.percentage,
+          clientId: null,
           subsidyId: id,
-        })
-        .where(eq(invoiceProjects.id, match.id))
-    } else {
-      await db.insert(invoiceProjects).values({
-        invoiceId: a.invoiceId,
-        projectId: a.projectId,
-        percentage: a.percentage,
-        activityId: a.activityId,
-        clientId: a.clientId,
-        subsidyId: id,
-      })
+        }))
+      )
     }
   }
 
-  for (const a of snap.payrollFunderAllocations) {
-    const entry = await db.query.payrollEntries.findFirst({
-      where: eq(payrollEntries.id, a.entryId),
-      columns: { id: true },
-    })
-    if (!entry) {
-      warnings.push(`Entrada ${a.entryId} inexistent; no es restaura el finançador`)
-      continue
-    }
-    const match = await db.query.payrollEntryProjects.findFirst({
-      where: and(
-        eq(payrollEntryProjects.entryId, a.entryId),
-        eq(payrollEntryProjects.projectId, a.projectId),
-        eq(payrollEntryProjects.percentage, a.percentage)
-      ),
-    })
-    if (match) {
-      await db
-        .update(payrollEntryProjects)
-        .set({
-          costType: a.costType,
-          activityId: a.activityId,
-          clientId: a.clientId,
-          subsidyId: id,
-        })
-        .where(eq(payrollEntryProjects.id, match.id))
-    } else {
-      const [row] = await db
-        .insert(payrollEntryProjects)
-        .values({
-          entryId: a.entryId,
-          projectId: a.projectId,
-          percentage: a.percentage,
-          costType: a.costType,
-          activityId: a.activityId,
-          clientId: a.clientId,
-          subsidyId: id,
-        })
-        .returning({ id: payrollEntryProjects.id })
-      if (a.categoryIds.length) {
-        await db.insert(payrollEntryProjectCategories).values(
-          [...new Set(a.categoryIds)].map((categoryId) => ({
-            allocationId: row.id,
-            categoryId,
-          }))
-        )
+  await db.delete(payrollEntryFunders).where(eq(payrollEntryFunders.subsidyId, id))
+  const entryIds = [...new Set(snap.payrollFunderAllocations.map((a) => a.entryId))]
+  if (entryIds.length) {
+    const existingEntries = await db
+      .select({ id: payrollEntries.id })
+      .from(payrollEntries)
+      .where(inArray(payrollEntries.id, entryIds))
+    const ok = new Set(existingEntries.map((r) => r.id))
+    const toInsert = snap.payrollFunderAllocations.filter((a) => {
+      if (!ok.has(a.entryId)) {
+        warnings.push(`Entrada ${a.entryId} inexistent; no es restaura el finançador`)
+        return false
       }
+      return true
+    })
+    if (toInsert.length) {
+      await db.insert(payrollEntryFunders).values(
+        toInsert.map((a) => ({
+          entryId: a.entryId,
+          percentage: a.percentage,
+          clientId: null,
+          subsidyId: id,
+        }))
+      )
     }
   }
 }
@@ -873,90 +896,57 @@ async function applyClientSnapshot(snap: ClientSnapshot, warnings: string[]) {
     })
   }
 
-  for (const a of snap.invoiceFunderAllocations) {
-    const inv = await db.query.supplierInvoices.findFirst({
-      where: eq(supplierInvoices.id, a.invoiceId),
-      columns: { id: true },
+  await db.delete(invoiceFunders).where(eq(invoiceFunders.clientId, id))
+  const invoiceIds = [...new Set(snap.invoiceFunderAllocations.map((a) => a.invoiceId))]
+  if (invoiceIds.length) {
+    const existingInvoices = await db
+      .select({ id: supplierInvoices.id })
+      .from(supplierInvoices)
+      .where(inArray(supplierInvoices.id, invoiceIds))
+    const ok = new Set(existingInvoices.map((r) => r.id))
+    const toInsert = snap.invoiceFunderAllocations.filter((a) => {
+      if (!ok.has(a.invoiceId)) {
+        warnings.push(`Factura ${a.invoiceId} inexistent; no es restaura el finançador`)
+        return false
+      }
+      return true
     })
-    if (!inv) {
-      warnings.push(`Factura ${a.invoiceId} inexistent; no es restaura el finançador`)
-      continue
-    }
-    const match = await db.query.invoiceProjects.findFirst({
-      where: and(
-        eq(invoiceProjects.invoiceId, a.invoiceId),
-        eq(invoiceProjects.projectId, a.projectId),
-        eq(invoiceProjects.percentage, a.percentage)
-      ),
-    })
-    if (match) {
-      await db
-        .update(invoiceProjects)
-        .set({
-          activityId: a.activityId,
+    if (toInsert.length) {
+      await db.insert(invoiceFunders).values(
+        toInsert.map((a) => ({
+          invoiceId: a.invoiceId,
+          percentage: a.percentage,
           clientId: id,
-          subsidyId: a.subsidyId,
-        })
-        .where(eq(invoiceProjects.id, match.id))
-    } else {
-      await db.insert(invoiceProjects).values({
-        invoiceId: a.invoiceId,
-        projectId: a.projectId,
-        percentage: a.percentage,
-        activityId: a.activityId,
-        clientId: id,
-        subsidyId: a.subsidyId,
-      })
+          subsidyId: null,
+        }))
+      )
     }
   }
 
-  for (const a of snap.payrollFunderAllocations) {
-    const entry = await db.query.payrollEntries.findFirst({
-      where: eq(payrollEntries.id, a.entryId),
-      columns: { id: true },
-    })
-    if (!entry) {
-      warnings.push(`Entrada ${a.entryId} inexistent; no es restaura el finançador`)
-      continue
-    }
-    const match = await db.query.payrollEntryProjects.findFirst({
-      where: and(
-        eq(payrollEntryProjects.entryId, a.entryId),
-        eq(payrollEntryProjects.projectId, a.projectId),
-        eq(payrollEntryProjects.percentage, a.percentage)
-      ),
-    })
-    if (match) {
-      await db
-        .update(payrollEntryProjects)
-        .set({
-          costType: a.costType,
-          activityId: a.activityId,
-          clientId: id,
-          subsidyId: a.subsidyId,
-        })
-        .where(eq(payrollEntryProjects.id, match.id))
-    } else {
-      const [row] = await db
-        .insert(payrollEntryProjects)
-        .values({
-          entryId: a.entryId,
-          projectId: a.projectId,
-          percentage: a.percentage,
-          costType: a.costType,
-          activityId: a.activityId,
-          clientId: id,
-          subsidyId: a.subsidyId,
-        })
-        .returning({ id: payrollEntryProjects.id })
-      if (a.categoryIds.length) {
-        await db.insert(payrollEntryProjectCategories).values(
-          [...new Set(a.categoryIds)].map((categoryId) => ({
-            allocationId: row.id,
-            categoryId,
-          }))
-        )
+  await db.delete(payrollEntryFunders).where(eq(payrollEntryFunders.clientId, id))
+  const entryIds = [...new Set(snap.payrollFunderAllocations.map((a) => a.entryId))]
+  if (entryIds.length) {
+    const existingEntries = await db
+      .select({ id: payrollEntries.id })
+      .from(payrollEntries)
+      .where(inArray(payrollEntries.id, entryIds))
+    const ok = new Set(existingEntries.map((r) => r.id))
+    const toInsert = snap.payrollFunderAllocations.filter((a) => {
+      if (!ok.has(a.entryId)) {
+        warnings.push(`Entrada ${a.entryId} inexistent; no es restaura el finançador`)
+        return false
       }
+      return true
+    })
+    if (toInsert.length) {
+      await db.insert(payrollEntryFunders).values(
+        toInsert.map((a) => ({
+          entryId: a.entryId,
+          percentage: a.percentage,
+          clientId: id,
+          subsidyId: null,
+        }))
+      )
     }
   }
 }

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { formatEuro } from "@/lib/format"
+import { unionFundersFromProjects } from "@/lib/funders"
 import { bulkUpdatePayrollEntries } from "@/server/actions"
 
 export function BulkEditEntriesDialog({
@@ -109,10 +110,15 @@ function BulkEditForm({
   const [changeAlloc, setChangeAlloc] = useState(false)
   const [amount, setAmount] = useState(0)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([])
   const [catalog, setCatalog] = useState(initialCategories)
 
   const n = entryIds.length
   const hasChange = changeAmount || changeAlloc
+  const funderOptions = unionFundersFromProjects(
+    alloc.map((a) => a.id),
+    fundersByProject
+  )
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -123,11 +129,14 @@ function BulkEditForm({
     if (changeAlloc) {
       const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
       if (err) return void toast.error(`Projectes: ${err}`)
+      const funderErr = allocationError(funderAlloc, "max")
+      if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
     }
     start(async () => {
       const res = await bulkUpdatePayrollEntries(payrollId, entryIds, {
         amount: changeAmount ? amount : undefined,
         allocations: changeAlloc ? alloc : undefined,
+        funderAllocations: changeAlloc ? funderAlloc : undefined,
       })
       if (!res.ok) return void toast.error(res.error)
       toast.success(
@@ -204,9 +213,21 @@ function BulkEditForm({
                   categories={catalog}
                   onCatalogChange={setCatalog}
                   activitiesByProject={activitiesByProject}
-                  fundersByProject={fundersByProject}
                   allowDuplicateIds
                   allowOver100
+                />
+                <FieldDescription>
+                  Capa opcional de finançadors. El residual es reparteix segons el
+                  mix dels projectes.
+                </FieldDescription>
+                <AllocationEditor
+                  value={funderAlloc}
+                  onChange={setFunderAlloc}
+                  options={funderOptions}
+                  mode="max"
+                  itemLabel="finançador"
+                  emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                  funderOptions
                 />
               </>
             )}

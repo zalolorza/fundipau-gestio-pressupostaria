@@ -175,6 +175,7 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                   projects: _p,
                   supplier: _s,
                   allocations,
+                  funderAllocations,
                   assigned,
                   cost: _c,
                   categories: _cats,
@@ -189,8 +190,8 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                       id: a.projectId,
                       percentage: a.percentage,
                       activityId: a.activityId,
-                      funderId: a.funderId ?? null,
                     }))}
+                    funderAllocations={funderAllocations}
                     categoryIds={categoryIds}
                     categories={categoryOptions}
                     projectOptions={projectOptions}
@@ -219,6 +220,17 @@ export default async function SupplierPage({ params }: PageProps<"/proveidors/[i
                             · {a.percentage} %
                           </Badge>
                         ))}
+                        {funderAllocations.map((f) => {
+                          const name =
+                            Object.values(fundersByProject)
+                              .flat()
+                              .find((x) => x.id === f.id)?.name ?? f.id
+                          return (
+                            <Badge key={f.id} variant="outline" className="max-w-56">
+                              <span className="truncate">{name}</span> · {f.percentage} %
+                            </Badge>
+                          )
+                        })}
                         {assigned < 100 && (
                           <Badge variant="destructive">{round2(100 - assigned)} % sense assignar</Badge>
                         )}

@@ -20,6 +20,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet 
 import { Input } from "@/components/ui/input"
 import { MonthPicker } from "@/components/ui/month-picker"
 import { Textarea } from "@/components/ui/textarea"
+import { unionFundersFromProjects } from "@/lib/funders"
 import { currentMonth } from "@/lib/months"
 import { createPayroll } from "@/server/actions"
 
@@ -38,19 +39,27 @@ export function PayrollCreateDialog({
 }) {
   const [open, setOpen] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([])
   const [catalog, setCatalog] = useState(initialCategories)
   const [pending, start] = useTransition()
   const router = useRouter()
+  const funderOptions = unionFundersFromProjects(
+    alloc.map((a) => a.id),
+    fundersByProject
+  )
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
     if (err) return void toast.error(`Projectes: ${err}`)
+    const funderErr = allocationError(funderAlloc, "max")
+    if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
     const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
     start(async () => {
       const res = await createPayroll(
         { ...f, startMonth: `${f.startMonth}-01`, endMonth: f.endMonth ? `${f.endMonth}-01` : null } as never,
-        alloc
+        alloc,
+        funderAlloc
       )
       if (!res.ok) return void toast.error(res.error)
       toast.success("Nòmina creada")
@@ -66,6 +75,7 @@ export function PayrollCreateDialog({
         setOpen(o)
         if (o) {
           setAlloc([])
+          setFunderAlloc([])
           setCatalog(initialCategories)
         }
       }}
@@ -133,9 +143,24 @@ export function PayrollCreateDialog({
                 categories={catalog}
                 onCatalogChange={setCatalog}
                 activitiesByProject={activitiesByProject}
-                fundersByProject={fundersByProject}
                 allowDuplicateIds
                 allowOver100
+              />
+            </FieldSet>
+            <FieldSet>
+              <FieldLegend>Finançadors</FieldLegend>
+              <FieldDescription>
+                Capa opcional de finançadors explícits. El residual es reparteix segons el mix
+                dels projectes assignats.
+              </FieldDescription>
+              <AllocationEditor
+                value={funderAlloc}
+                onChange={setFunderAlloc}
+                options={funderOptions}
+                mode="max"
+                itemLabel="finançador"
+                emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                funderOptions
               />
             </FieldSet>
           </FieldGroup>

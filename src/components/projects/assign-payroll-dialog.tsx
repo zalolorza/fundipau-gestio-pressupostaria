@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import {
   CategoryPicker,
   type CategoryRef,
@@ -59,7 +58,6 @@ export type PayrollAssignmentEdit = {
   costType?: CostType;
   categoryIds?: string[];
   activityId?: string | null;
-  funderId?: string | null;
   /** Assignacions que s'estan editant (es substitueixen pel nou rang). */
   allocationIds?: string[];
 };
@@ -71,7 +69,6 @@ export function AssignPayrollDialog({
   payrolls,
   categories: initialCategories = [],
   activities = [],
-  funders = [],
   defaultFrom,
   defaultTo,
   edit,
@@ -83,6 +80,7 @@ export function AssignPayrollDialog({
   payrolls: PayrollOption[];
   categories?: CategoryRef[];
   activities?: ActivityRef[];
+  /** @deprecated El finançador ja no s'assigna per fila de projecte. */
   funders?: { id: string; name: string }[];
   defaultFrom?: string | null;
   defaultTo?: string | null;
@@ -103,7 +101,6 @@ export function AssignPayrollDialog({
   const [costType, setCostType] = useState<CostType>("direct");
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [activityId, setActivityId] = useState<string | null>(null);
-  const [funderId, setFunderId] = useState<string | null>(null);
   const [catalog, setCatalog] = useState(initialCategories);
   const [pending, start] = useTransition();
 
@@ -117,7 +114,6 @@ export function AssignPayrollDialog({
       setCostType(edit.costType ?? "direct");
       setCategoryIds(edit.categoryIds ?? []);
       setActivityId(edit.activityId ?? null);
-      setFunderId(edit.funderId ?? null);
       setFrom(edit.from.slice(0, 7));
       setTo(edit.to.slice(0, 7));
       return;
@@ -127,7 +123,6 @@ export function AssignPayrollDialog({
     setCostType("direct");
     setCategoryIds([]);
     setActivityId(null);
-    setFunderId(null);
     setFrom((defaultFrom ?? currentMonth()).slice(0, 7));
     setTo(
       (defaultTo && defaultTo < currentMonth()
@@ -162,7 +157,6 @@ export function AssignPayrollDialog({
         costType,
         categoryIds,
         activityId,
-        funderId,
       );
       if (!res.ok) return void toast.error(res.error);
 
@@ -303,27 +297,6 @@ export function AssignPayrollDialog({
               </Select>
             </Field>
           )}
-          {funders.length > 0 && (
-            <Field>
-              <FieldLabel>Finançador</FieldLabel>
-              <Select
-                value={funderId ?? NONE}
-                onValueChange={(v) => setFunderId(v === NONE ? null : v)}
-              >
-                <SelectTrigger className="w-full" aria-label="Finançador">
-                  <SelectValue placeholder="Finançament dividit" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NONE}>Finançament dividit</SelectItem>
-                  {funders.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      <FunderOptionLabel id={f.id} name={f.name} />
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
           <Field>
             <FieldLabel>Categories</FieldLabel>
             <CategoryPicker
@@ -335,8 +308,8 @@ export function AssignPayrollDialog({
           </Field>
           <FieldDescription>
             {isEdit
-              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus, activitat, finançador i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
-              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus, l'activitat, el finançador i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
+              ? "Els mesos del nou rang s'actualitzen amb aquest percentatge, tipus, activitat i categories. Els mesos que quedin fora del rang es desassignen d'aquest projecte."
+              : "Si manquen registres mensuals, es creen amb l'import del mes més proper. Si ja estava assignada, se'n substitueix el percentatge, el tipus, l'activitat i les categories. Cap mes pot superar el 100 % entre tots els projectes."}
           </FieldDescription>
         </FieldGroup>
         <DialogFooter>

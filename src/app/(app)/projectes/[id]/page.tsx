@@ -418,7 +418,6 @@ export default async function ProjectPage({
                 suppliers={suppliers}
                 categories={categoryOptions}
                 activities={activityOptions}
-                funders={project.funders}
               />
             </TabsContent>
             <TabsContent value="nomines">
@@ -429,7 +428,6 @@ export default async function ProjectPage({
                 payrolls={payrolls}
                 categories={categoryOptions}
                 activities={activityOptions}
-                funders={project.funders}
                 defaultFrom={project.openedAt}
                 defaultTo={project.closedAt}
               />

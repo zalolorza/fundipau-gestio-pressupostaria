@@ -205,6 +205,7 @@ export function InvoicesTable({
                   projects: _p,
                   supplier: _s,
                   allocations,
+                  funderAllocations,
                   assigned,
                   assignedTotal,
                   cost: _c,
@@ -299,6 +300,17 @@ export function InvoicesTable({
                             <span className="truncate">{a.name}</span> · {a.percentage} %
                           </Badge>
                         ))}
+                        {funderAllocations.map((f) => {
+                          const name =
+                            Object.values(fundersByProject)
+                              .flat()
+                              .find((x) => x.id === f.id)?.name ?? f.id
+                          return (
+                            <Badge key={f.id} variant="outline" className="max-w-56">
+                              <span className="truncate">{name}</span> · {f.percentage} %
+                            </Badge>
+                          )
+                        })}
                         {assigned < 100 && (
                           <Badge variant="destructive">{round2(100 - assigned)} % sense assignar</Badge>
                         )}
@@ -314,8 +326,8 @@ export function InvoicesTable({
                           id: a.projectId,
                           percentage: a.percentage,
                           activityId: a.activityId,
-                          funderId: a.funderId ?? null,
                         }))}
+                        funderAllocations={funderAllocations}
                         categoryIds={inv.categoryIds}
                         categories={categories}
                         projectOptions={projectOptions}

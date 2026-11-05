@@ -3,11 +3,11 @@
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import {
   CategoryPicker,
   type CategoryRef,
 } from "@/components/categories/category-picker";
+import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,8 +30,6 @@ export type AllocationRow = {
   categoryIds?: string[];
   /** Activitat del projecte (assignacions factura/nòmina). */
   activityId?: string | null;
-  /** Finançador opcional (`client:` / `subsidy:`). */
-  funderId?: string | null;
 };
 export type AllocationOption = {
   id: string;
@@ -42,10 +40,8 @@ export type AllocationOption = {
   disabled?: boolean;
 };
 export type AllocationActivityOption = { id: string; name: string };
-export type AllocationFunderOption = { id: string; name: string };
 
 const ACTIVITY_NONE = "__none__";
-const FUNDER_NONE = "__none__";
 
 export function allocationSum(rows: AllocationRow[]) {
   return round2(rows.reduce((s, r) => s + (Number(r.percentage) || 0), 0));
@@ -85,9 +81,10 @@ export function AllocationEditor({
   categories,
   onCatalogChange,
   activitiesByProject,
-  fundersByProject,
+  /** Mostra l'etiqueta de tipus de finançador a les opcions (`client:` / `subsidy:`). */
+  funderOptions = false,
   allowDuplicateIds = false,
-  /** Permet que la suma de % superi el 100 (factures / nòmines). */
+  /** Permet que la suma de % superi el 100 (imputació a projectes). */
   allowOver100 = false,
   /** Base (€) per mostrar i editar l'import a partir del %. Si hi és, ambdós inputs es sincronitzen. */
   amountBase,
@@ -105,8 +102,7 @@ export function AllocationEditor({
   onCatalogChange?: (next: CategoryRef[]) => void;
   /** Activitats per projecte; si hi és, mostra el selector d'activitat. */
   activitiesByProject?: Record<string, AllocationActivityOption[]>;
-  /** Finançadors per projecte; si hi és, mostra el selector de finançador. */
-  fundersByProject?: Record<string, AllocationFunderOption[]>;
+  funderOptions?: boolean;
   /** Permet el mateix id (projecte) en diverses files. */
   allowDuplicateIds?: boolean;
   allowOver100?: boolean;
@@ -114,7 +110,6 @@ export function AllocationEditor({
 }) {
   const withCategories = !!categories;
   const withActivities = !!activitiesByProject;
-  const withFunders = !!fundersByProject;
   const withAmount =
     amountBase != null && Number.isFinite(amountBase) && amountBase > 0;
   const sum = allocationSum(value);
@@ -195,13 +190,8 @@ export function AllocationEditor({
         const projectActivities = row.id
           ? (activitiesByProject?.[row.id] ?? [])
           : [];
-        const projectFunders = row.id ? (fundersByProject?.[row.id] ?? []) : [];
         const dense =
-          withCostType ||
-          withCategories ||
-          withActivities ||
-          withFunders ||
-          withAmount;
+          withCostType || withCategories || withActivities || withAmount;
         const amount = amountOf(row.percentage);
         const maxPct = maxPercentageFor(i);
         const maxAmount = withAmount ? round2((maxPct * amountBase!) / 100) : 0;
@@ -224,7 +214,6 @@ export function AllocationEditor({
                   update(i, {
                     id,
                     ...(withActivities ? { activityId: null } : {}),
-                    ...(withFunders ? { funderId: null } : {}),
                   })
                 }
               >
@@ -243,17 +232,21 @@ export function AllocationEditor({
                           o.id !== row.id)
                       }
                     >
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="truncate">{o.name}</span>
-                        {o.badge && (
-                          <Badge variant="outline">{o.badge}</Badge>
-                        )}
-                        {o.hint && (
-                          <span className="text-muted-foreground">
-                            · {o.hint}
-                          </span>
-                        )}
-                      </span>
+                      {funderOptions ? (
+                        <FunderOptionLabel id={o.id} name={o.name} />
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="truncate">{o.name}</span>
+                          {o.badge && (
+                            <Badge variant="outline">{o.badge}</Badge>
+                          )}
+                          {o.hint && (
+                            <span className="text-muted-foreground">
+                              · {o.hint}
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -279,32 +272,6 @@ export function AllocationEditor({
                     {projectActivities.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {withFunders && (
-                <Select
-                  value={row.funderId ?? FUNDER_NONE}
-                  onValueChange={(v) =>
-                    update(i, { funderId: v === FUNDER_NONE ? null : v })
-                  }
-                  disabled={!row.id || projectFunders.length === 0}
-                >
-                  <SelectTrigger
-                    className="w-full sm:w-56 shrink-0"
-                    aria-label="Finançador"
-                  >
-                    <SelectValue placeholder="Finançament dividit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={FUNDER_NONE}>
-                      Finançament dividit
-                    </SelectItem>
-                    {projectFunders.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        <FunderOptionLabel id={f.id} name={f.name} />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -457,7 +424,6 @@ export function AllocationEditor({
                   ...(withCostType ? { costType: "direct" as const } : {}),
                   ...(withCategories ? { categoryIds: [] } : {}),
                   ...(withActivities ? { activityId: null } : {}),
-                  ...(withFunders ? { funderId: null } : {}),
                 },
               ])
             }

@@ -32,6 +32,7 @@ export function BillingPartidaRow({
       <InvoiceDialog
         invoice={line.invoice}
         allocations={line.allocations}
+        funderAllocations={line.funderAllocations}
         categoryIds={line.categoryIds}
         categories={edit.categories}
         projectOptions={edit.projectOptions}
@@ -46,6 +47,7 @@ export function BillingPartidaRow({
         payrollId={line.payrollId}
         month={line.month}
         allocations={line.allocations}
+        funderAllocations={line.funderAllocations}
         projectOptions={edit.projectOptions}
         activitiesByProject={edit.activitiesByProject}
         fundersByProject={edit.fundersByProject}

@@ -109,10 +109,6 @@ export default async function PayrollPage({
                   ? activities.find((act) => act.id === a.activityId)?.name ??
                     null
                   : null,
-                funderId: a.funderId ?? null,
-                funderName: a.funderId
-                  ? funders.find((f) => f.id === a.funderId)?.name ?? null
-                  : null,
               })),
             }))}
           />

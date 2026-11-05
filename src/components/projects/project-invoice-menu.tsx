@@ -28,7 +28,7 @@ export function ProjectInvoiceMenu({
   suppliers,
   categories = [],
   activities = [],
-  funders = [],
+  funders: _funders = [],
   defaultVatDeductibleRate,
 }: {
   projectId: string
@@ -40,6 +40,7 @@ export function ProjectInvoiceMenu({
   suppliers: SupplierOption[]
   categories?: { id: string; name: string }[]
   activities?: ActivityRef[]
+  /** @deprecated El finançador ja no s'assigna en crear/assignar des del projecte. */
   funders?: { id: string; name: string }[]
   defaultVatDeductibleRate?: number
 }) {
@@ -70,7 +71,7 @@ export function ProjectInvoiceMenu({
         fundersByProject={fundersByProject}
         suppliers={suppliers}
         categories={categories}
-        allocations={[{ id: projectId, percentage: 100, activityId: null, funderId: null }]}
+        allocations={[{ id: projectId, percentage: 100, activityId: null }]}
         defaultVatDeductibleRate={defaultVatDeductibleRate}
       />
       <AssignInvoiceDialog
@@ -82,7 +83,6 @@ export function ProjectInvoiceMenu({
         invoices={invoices}
         current={current}
         activities={activities}
-        funders={funders}
       />
     </>
   )

@@ -360,7 +360,7 @@ export const supplierInvoices = pgTable(
   ]
 )
 
-/** Repartiment d'una factura entre projectes (màxim 100%; diverses files per projecte). */
+/** Imputació d'una factura a projectes (la suma pot superar 100 %; diverses files per projecte). */
 export const invoiceProjects = pgTable(
   "invoice_projects",
   {
@@ -376,21 +376,37 @@ export const invoiceProjects = pgTable(
     activityId: uuid("activity_id").references(() => projectActivities.id, {
       onDelete: "set null",
     }),
-    /** Finançador opcional: client XOR subvenció. Sense valor → % del projecte. */
-    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-    subsidyId: uuid("subsidy_id").references(() => subsidies.id, { onDelete: "set null" }),
   },
   (t) => [
     check("invoice_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
-    check(
-      "invoice_projects_funder_xor",
-      sql`not (${t.clientId} is not null and ${t.subsidyId} is not null)`
-    ),
     index("invoice_projects_invoice_idx").on(t.invoiceId),
     index("invoice_projects_project_idx").on(t.projectId),
     index("invoice_projects_activity_idx").on(t.activityId),
-    index("invoice_projects_client_idx").on(t.clientId),
-    index("invoice_projects_subsidy_idx").on(t.subsidyId),
+  ]
+)
+
+/** Assignació explícita d'una factura a finançadors (suma ≤ 100 %; residu → mix dels projectes). */
+export const invoiceFunders = pgTable(
+  "invoice_funders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => supplierInvoices.id, { onDelete: "cascade" }),
+    percentage: pct("percentage").notNull(),
+    /** Finançador: client XOR subvenció. */
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+    subsidyId: uuid("subsidy_id").references(() => subsidies.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    check("invoice_funders_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+    check(
+      "invoice_funders_funder_xor",
+      sql`(${t.clientId} is not null and ${t.subsidyId} is null) or (${t.clientId} is null and ${t.subsidyId} is not null)`
+    ),
+    index("invoice_funders_invoice_idx").on(t.invoiceId),
+    index("invoice_funders_client_idx").on(t.clientId),
+    index("invoice_funders_subsidy_idx").on(t.subsidyId),
   ]
 )
 
@@ -442,7 +458,7 @@ export const payrollEntries = pgTable(
   ]
 )
 
-/** Repartiment d'un registre mensual de nòmina entre projectes (màxim 100%; diverses files per projecte). */
+/** Imputació d'un registre mensual de nòmina a projectes (la suma pot superar 100 %). */
 export const payrollEntryProjects = pgTable(
   "payroll_entry_projects",
   {
@@ -460,22 +476,38 @@ export const payrollEntryProjects = pgTable(
     activityId: uuid("activity_id").references(() => projectActivities.id, {
       onDelete: "set null",
     }),
-    /** Finançador opcional: client XOR subvenció. Sense valor → % del projecte. */
-    clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
-    subsidyId: uuid("subsidy_id").references(() => subsidies.id, { onDelete: "set null" }),
   },
   (t) => [
     check("payroll_entry_projects_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
     check("payroll_entry_projects_cost_type", sql`${t.costType} in ('direct', 'indirect')`),
-    check(
-      "payroll_entry_projects_funder_xor",
-      sql`not (${t.clientId} is not null and ${t.subsidyId} is not null)`
-    ),
     index("payroll_entry_projects_entry_idx").on(t.entryId),
     index("payroll_entry_projects_project_idx").on(t.projectId),
     index("payroll_entry_projects_activity_idx").on(t.activityId),
-    index("payroll_entry_projects_client_idx").on(t.clientId),
-    index("payroll_entry_projects_subsidy_idx").on(t.subsidyId),
+  ]
+)
+
+/** Assignació explícita d'una entrada de nòmina a finançadors (suma ≤ 100 %). */
+export const payrollEntryFunders = pgTable(
+  "payroll_entry_funders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => payrollEntries.id, { onDelete: "cascade" }),
+    percentage: pct("percentage").notNull(),
+    /** Finançador: client XOR subvenció. */
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+    subsidyId: uuid("subsidy_id").references(() => subsidies.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    check("payroll_entry_funders_pct", sql`${t.percentage} > 0 and ${t.percentage} <= 100`),
+    check(
+      "payroll_entry_funders_funder_xor",
+      sql`(${t.clientId} is not null and ${t.subsidyId} is null) or (${t.clientId} is null and ${t.subsidyId} is not null)`
+    ),
+    index("payroll_entry_funders_entry_idx").on(t.entryId),
+    index("payroll_entry_funders_client_idx").on(t.clientId),
+    index("payroll_entry_funders_subsidy_idx").on(t.subsidyId),
   ]
 )
 
@@ -585,6 +617,7 @@ export const costCategoriesRelations = relations(costCategories, ({ many }) => (
 export const supplierInvoicesRelations = relations(supplierInvoices, ({ one, many }) => ({
   supplier: one(suppliers, { fields: [supplierInvoices.supplierId], references: [suppliers.id] }),
   projects: many(invoiceProjects),
+  funders: many(invoiceFunders),
   categories: many(invoiceCategories),
 }))
 
@@ -598,8 +631,15 @@ export const invoiceProjectsRelations = relations(invoiceProjects, ({ one }) => 
     fields: [invoiceProjects.activityId],
     references: [projectActivities.id],
   }),
-  client: one(clients, { fields: [invoiceProjects.clientId], references: [clients.id] }),
-  subsidy: one(subsidies, { fields: [invoiceProjects.subsidyId], references: [subsidies.id] }),
+}))
+
+export const invoiceFundersRelations = relations(invoiceFunders, ({ one }) => ({
+  invoice: one(supplierInvoices, {
+    fields: [invoiceFunders.invoiceId],
+    references: [supplierInvoices.id],
+  }),
+  client: one(clients, { fields: [invoiceFunders.clientId], references: [clients.id] }),
+  subsidy: one(subsidies, { fields: [invoiceFunders.subsidyId], references: [subsidies.id] }),
 }))
 
 export const invoiceCategoriesRelations = relations(invoiceCategories, ({ one }) => ({
@@ -620,6 +660,7 @@ export const payrollsRelations = relations(payrolls, ({ many }) => ({
 export const payrollEntriesRelations = relations(payrollEntries, ({ one, many }) => ({
   payroll: one(payrolls, { fields: [payrollEntries.payrollId], references: [payrolls.id] }),
   projects: many(payrollEntryProjects),
+  funders: many(payrollEntryFunders),
 }))
 
 export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ one, many }) => ({
@@ -635,12 +676,19 @@ export const payrollEntryProjectsRelations = relations(payrollEntryProjects, ({ 
     fields: [payrollEntryProjects.activityId],
     references: [projectActivities.id],
   }),
-  client: one(clients, { fields: [payrollEntryProjects.clientId], references: [clients.id] }),
+  categories: many(payrollEntryProjectCategories),
+}))
+
+export const payrollEntryFundersRelations = relations(payrollEntryFunders, ({ one }) => ({
+  entry: one(payrollEntries, {
+    fields: [payrollEntryFunders.entryId],
+    references: [payrollEntries.id],
+  }),
+  client: one(clients, { fields: [payrollEntryFunders.clientId], references: [clients.id] }),
   subsidy: one(subsidies, {
-    fields: [payrollEntryProjects.subsidyId],
+    fields: [payrollEntryFunders.subsidyId],
     references: [subsidies.id],
   }),
-  categories: many(payrollEntryProjectCategories),
 }))
 
 export const payrollEntryProjectCategoriesRelations = relations(

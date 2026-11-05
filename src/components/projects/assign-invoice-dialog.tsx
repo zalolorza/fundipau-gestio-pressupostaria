@@ -4,7 +4,6 @@ import { SearchIcon } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
-import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -45,7 +44,6 @@ export function AssignInvoiceDialog({
   projectId,
   invoices,
   activities = [],
-  funders = [],
   open: controlledOpen,
   onOpenChange,
   children,
@@ -55,6 +53,7 @@ export function AssignInvoiceDialog({
   /** @deprecated Ja no cal (es pot superar el 100 %). */
   current?: Record<string, number>;
   activities?: ActivityRef[];
+  /** @deprecated El finançador ja no s'assigna per fila de projecte. */
   funders?: { id: string; name: string }[];
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -67,7 +66,6 @@ export function AssignInvoiceDialog({
   const [selected, setSelected] = useState<string | null>(null);
   const [percentage, setPercentage] = useState<number>(100);
   const [activityId, setActivityId] = useState<string | null>(null);
-  const [funderId, setFunderId] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   const list = useMemo(() => {
@@ -91,7 +89,6 @@ export function AssignInvoiceDialog({
       setSelected(null);
       setQ("");
       setActivityId(null);
-      setFunderId(null);
     }
   }
 
@@ -103,7 +100,6 @@ export function AssignInvoiceDialog({
         selected,
         percentage,
         activityId,
-        funderId,
       );
       if (!res.ok) return void toast.error(res.error);
       toast.success("Factura assignada");
@@ -214,27 +210,6 @@ export function AssignInvoiceDialog({
                     {activities.map((a) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            )}
-            {funders.length > 0 && (
-              <Field orientation="horizontal" className="items-center">
-                <FieldLabel className="flex-1">Finançador</FieldLabel>
-                <Select
-                  value={funderId ?? NONE}
-                  onValueChange={(v) => setFunderId(v === NONE ? null : v)}
-                >
-                  <SelectTrigger className="w-56" aria-label="Finançador">
-                    <SelectValue placeholder="Finançament dividit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NONE}>Finançament dividit</SelectItem>
-                    {funders.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        <FunderOptionLabel id={f.id} name={f.name} />
                       </SelectItem>
                     ))}
                   </SelectContent>

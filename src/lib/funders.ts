@@ -52,3 +52,20 @@ export function funderKeyFromColumns(
   if (subsidyId) return funderKey("subsidy", subsidyId)
   return null
 }
+
+/** Unió dels finançadors dels projectes seleccionats (sense duplicats). */
+export function unionFundersFromProjects(
+  projectIds: string[],
+  fundersByProject: Record<string, { id: string; name: string }[]>
+): { id: string; name: string }[] {
+  const seen = new Map<string, string>()
+  for (const projectId of projectIds) {
+    if (!projectId) continue
+    for (const f of fundersByProject[projectId] ?? []) {
+      if (!seen.has(f.id)) seen.set(f.id, f.name)
+    }
+  }
+  return [...seen.entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ca"))
+}

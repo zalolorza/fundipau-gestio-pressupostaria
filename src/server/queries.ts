@@ -8,8 +8,10 @@ import {
   costCategories,
   invitations,
   invoiceCategories,
+  invoiceFunders,
   invoiceProjects,
   payrollEntries,
+  payrollEntryFunders,
   payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
@@ -23,33 +25,50 @@ import {
   suppliers,
   user,
 } from "@/db/schema"
+import {
+  clientShareByProject,
+  subsidyShareByProject,
+  type FunderAllocationShare,
+  type ProjectAllocationShare,
+  type ProjectFunderMix,
+} from "@/lib/billing-share"
 import type { CostType } from "@/lib/cost-type"
 import { round2 } from "@/lib/format"
 import { funderKey, funderKeyFromColumns } from "@/lib/funders"
 import { invoiceCost } from "@/lib/invoice"
 import { endOfMonth, toMonth } from "@/lib/months"
 
-/** % del client sobre una assignació (100 si client explícit, % subvenció, o % projecte). */
-function clientShareOfAllocation(
-  billingClientId: string,
-  alloc: { clientId: string | null; subsidyId: string | null },
-  projectClientPct: number,
-  subsidyClientPct: Map<string, number>
-): number {
-  if (alloc.clientId) return alloc.clientId === billingClientId ? 100 : 0
-  if (alloc.subsidyId) return subsidyClientPct.get(alloc.subsidyId) ?? 0
-  return projectClientPct
-}
-
-/** % de la subvenció sobre una assignació (100 si subvenció explícita, 0 si client, o % projecte). */
-function subsidyShareOfAllocation(
-  billingSubsidyId: string,
-  alloc: { clientId: string | null; subsidyId: string | null },
-  projectSubsidyPct: number
-): number {
-  if (alloc.subsidyId) return alloc.subsidyId === billingSubsidyId ? 100 : 0
-  if (alloc.clientId) return 0
-  return projectSubsidyPct
+async function loadProjectFunderMixes(projectIds: string[]): Promise<Map<string, ProjectFunderMix>> {
+  const mixes = new Map<string, ProjectFunderMix>()
+  for (const id of projectIds) {
+    mixes.set(id, { clients: new Map(), subsidies: new Map() })
+  }
+  if (!projectIds.length) return mixes
+  const [clientRows, subsidyRows] = await Promise.all([
+    db
+      .select({
+        projectId: projectClients.projectId,
+        clientId: projectClients.clientId,
+        percentage: projectClients.percentage,
+      })
+      .from(projectClients)
+      .where(inArray(projectClients.projectId, projectIds)),
+    db
+      .select({
+        projectId: projectSubsidies.projectId,
+        subsidyId: projectSubsidies.subsidyId,
+        percentage: projectSubsidies.percentage,
+      })
+      .from(projectSubsidies)
+      .where(inArray(projectSubsidies.projectId, projectIds)),
+  ])
+  for (const r of clientRows) {
+    mixes.get(r.projectId)?.clients.set(r.clientId, r.percentage)
+  }
+  for (const r of subsidyRows) {
+    mixes.get(r.projectId)?.subsidies.set(r.subsidyId, r.percentage)
+  }
+  return mixes
 }
 
 export type ProjectCosts = {
@@ -629,8 +648,6 @@ export async function getProject(id: string) {
         invoice: supplierInvoices,
         percentage: invoiceProjects.percentage,
         activityId: invoiceProjects.activityId,
-        clientId: invoiceProjects.clientId,
-        subsidyId: invoiceProjects.subsidyId,
       })
       .from(invoiceProjects)
       .innerJoin(supplierInvoices, eq(supplierInvoices.id, invoiceProjects.invoiceId))
@@ -648,8 +665,6 @@ export async function getProject(id: string) {
         percentage: payrollEntryProjects.percentage,
         costType: payrollEntryProjects.costType,
         activityId: payrollEntryProjects.activityId,
-        clientId: payrollEntryProjects.clientId,
-        subsidyId: payrollEntryProjects.subsidyId,
       })
       .from(payrollEntryProjects)
       .innerJoin(payrollEntries, eq(payrollEntries.id, payrollEntryProjects.entryId))
@@ -672,62 +687,96 @@ export async function getProject(id: string) {
 
   const invoiceIds = [...new Set(invoiceRows.map((r) => r.invoice.id))]
   const allocationIds = payrollRows.map((r) => r.allocationId)
+  const entryIds = [...new Set(payrollRows.map((r) => r.entryId))]
 
-  const [allAllocations, invoiceCats, payrollCats] = await Promise.all([
-    invoiceIds.length === 0
-      ? Promise.resolve(
-          [] as {
-            id: string
-            invoiceId: string
-            projectId: string
-            percentage: number
-            activityId: string | null
-            clientId: string | null
-            subsidyId: string | null
-          }[]
-        )
-      : db
-          .select({
-            id: invoiceProjects.id,
-            invoiceId: invoiceProjects.invoiceId,
-            projectId: invoiceProjects.projectId,
-            percentage: invoiceProjects.percentage,
-            activityId: invoiceProjects.activityId,
-            clientId: invoiceProjects.clientId,
-            subsidyId: invoiceProjects.subsidyId,
-          })
-          .from(invoiceProjects)
-          .where(inArray(invoiceProjects.invoiceId, invoiceIds)),
-    invoiceIds.length === 0
-      ? Promise.resolve(
-          [] as { invoiceId: string; categoryId: string; name: string }[]
-        )
-      : db
-          .select({
-            invoiceId: invoiceCategories.invoiceId,
-            categoryId: costCategories.id,
-            name: costCategories.name,
-          })
-          .from(invoiceCategories)
-          .innerJoin(costCategories, eq(costCategories.id, invoiceCategories.categoryId))
-          .where(inArray(invoiceCategories.invoiceId, invoiceIds)),
-    allocationIds.length === 0
-      ? Promise.resolve(
-          [] as { allocationId: string; categoryId: string; name: string }[]
-        )
-      : db
-          .select({
-            allocationId: payrollEntryProjectCategories.allocationId,
-            categoryId: costCategories.id,
-            name: costCategories.name,
-          })
-          .from(payrollEntryProjectCategories)
-          .innerJoin(
-            costCategories,
-            eq(costCategories.id, payrollEntryProjectCategories.categoryId)
+  const [allAllocations, invoiceFunderRows, payrollFunderRows, invoiceCats, payrollCats] =
+    await Promise.all([
+      invoiceIds.length === 0
+        ? Promise.resolve(
+            [] as {
+              id: string
+              invoiceId: string
+              projectId: string
+              percentage: number
+              activityId: string | null
+            }[]
           )
-          .where(inArray(payrollEntryProjectCategories.allocationId, allocationIds)),
-  ])
+        : db
+            .select({
+              id: invoiceProjects.id,
+              invoiceId: invoiceProjects.invoiceId,
+              projectId: invoiceProjects.projectId,
+              percentage: invoiceProjects.percentage,
+              activityId: invoiceProjects.activityId,
+            })
+            .from(invoiceProjects)
+            .where(inArray(invoiceProjects.invoiceId, invoiceIds)),
+      invoiceIds.length === 0
+        ? Promise.resolve(
+            [] as {
+              invoiceId: string
+              clientId: string | null
+              subsidyId: string | null
+              percentage: number
+            }[]
+          )
+        : db
+            .select({
+              invoiceId: invoiceFunders.invoiceId,
+              clientId: invoiceFunders.clientId,
+              subsidyId: invoiceFunders.subsidyId,
+              percentage: invoiceFunders.percentage,
+            })
+            .from(invoiceFunders)
+            .where(inArray(invoiceFunders.invoiceId, invoiceIds)),
+      entryIds.length === 0
+        ? Promise.resolve(
+            [] as {
+              entryId: string
+              clientId: string | null
+              subsidyId: string | null
+              percentage: number
+            }[]
+          )
+        : db
+            .select({
+              entryId: payrollEntryFunders.entryId,
+              clientId: payrollEntryFunders.clientId,
+              subsidyId: payrollEntryFunders.subsidyId,
+              percentage: payrollEntryFunders.percentage,
+            })
+            .from(payrollEntryFunders)
+            .where(inArray(payrollEntryFunders.entryId, entryIds)),
+      invoiceIds.length === 0
+        ? Promise.resolve(
+            [] as { invoiceId: string; categoryId: string; name: string }[]
+          )
+        : db
+            .select({
+              invoiceId: invoiceCategories.invoiceId,
+              categoryId: costCategories.id,
+              name: costCategories.name,
+            })
+            .from(invoiceCategories)
+            .innerJoin(costCategories, eq(costCategories.id, invoiceCategories.categoryId))
+            .where(inArray(invoiceCategories.invoiceId, invoiceIds)),
+      allocationIds.length === 0
+        ? Promise.resolve(
+            [] as { allocationId: string; categoryId: string; name: string }[]
+          )
+        : db
+            .select({
+              allocationId: payrollEntryProjectCategories.allocationId,
+              categoryId: costCategories.id,
+              name: costCategories.name,
+            })
+            .from(payrollEntryProjectCategories)
+            .innerJoin(
+              costCategories,
+              eq(costCategories.id, payrollEntryProjectCategories.categoryId)
+            )
+            .where(inArray(payrollEntryProjectCategories.allocationId, allocationIds)),
+    ])
 
   const allocationsByInvoice = new Map<
     string,
@@ -735,7 +784,6 @@ export async function getProject(id: string) {
       id: string
       percentage: number
       activityId: string | null
-      funderId: string | null
     }[]
   >()
   for (const a of allAllocations) {
@@ -744,9 +792,26 @@ export async function getProject(id: string) {
       id: a.projectId,
       percentage: a.percentage,
       activityId: a.activityId,
-      funderId: funderKeyFromColumns(a.clientId, a.subsidyId),
     })
     allocationsByInvoice.set(a.invoiceId, list)
+  }
+
+  const fundersByInvoice = new Map<string, { id: string; percentage: number }[]>()
+  for (const f of invoiceFunderRows) {
+    const key = funderKeyFromColumns(f.clientId, f.subsidyId)
+    if (!key) continue
+    const list = fundersByInvoice.get(f.invoiceId) ?? []
+    list.push({ id: key, percentage: f.percentage })
+    fundersByInvoice.set(f.invoiceId, list)
+  }
+
+  const fundersByEntry = new Map<string, { id: string; percentage: number }[]>()
+  for (const f of payrollFunderRows) {
+    const key = funderKeyFromColumns(f.clientId, f.subsidyId)
+    if (!key) continue
+    const list = fundersByEntry.get(f.entryId) ?? []
+    list.push({ id: key, percentage: f.percentage })
+    fundersByEntry.set(f.entryId, list)
   }
 
   const catsByInvoice = new Map<string, { id: string; name: string }[]>()
@@ -783,12 +848,11 @@ export async function getProject(id: string) {
       percentage: r.percentage,
       imputed,
       allocations: allocationsByInvoice.get(r.invoice.id) ?? [],
+      funderAllocations: fundersByInvoice.get(r.invoice.id) ?? [],
       categories,
       categoryIds: categories.map((c) => c.id),
       activityId: r.activityId,
       activityName,
-      funderId: funderKeyFromColumns(r.clientId, r.subsidyId),
-      funderName: null as string | null,
     }
   })
 
@@ -812,8 +876,7 @@ export async function getProject(id: string) {
         categoryIds: string[]
         activityId: string | null
         activityName: string | null
-        funderId: string | null
-        funderName: string | null
+        funderAllocations: { id: string; percentage: number }[]
       }[]
     }
   >()
@@ -846,26 +909,9 @@ export async function getProject(id: string) {
       categoryIds: categories.map((c) => c.id),
       activityId: r.activityId,
       activityName: r.activityId ? (activityById.get(r.activityId) ?? null) : null,
-      funderId: funderKeyFromColumns(r.clientId, r.subsidyId),
-      funderName: null,
+      funderAllocations: fundersByEntry.get(r.entryId) ?? [],
     })
     g.total = round2(g.total + imputed)
-  }
-
-  const funderNameByKey = new Map<string, string>()
-  for (const pc of project.clients) {
-    funderNameByKey.set(funderKey("client", pc.client.id), pc.client.name)
-  }
-  for (const ps of project.subsidies) {
-    funderNameByKey.set(funderKey("subsidy", ps.subsidy.id), ps.subsidy.name)
-  }
-  for (const inv of invoices) {
-    inv.funderName = inv.funderId ? (funderNameByKey.get(inv.funderId) ?? null) : null
-  }
-  for (const person of byPerson.values()) {
-    for (const e of person.entries) {
-      e.funderName = e.funderId ? (funderNameByKey.get(e.funderId) ?? null) : null
-    }
   }
 
   const c = costs.get(id) ?? emptyCosts()
@@ -1078,8 +1124,8 @@ export type BillingInvoiceLine = {
     id: string
     percentage: number
     activityId: string | null
-    funderId: string | null
   }[]
+  funderAllocations: { id: string; percentage: number }[]
   categoryIds: string[]
 }
 
@@ -1100,8 +1146,8 @@ export type BillingPayrollLine = {
     costType: CostType
     categoryIds: string[]
     activityId: string | null
-    funderId: string | null
   }[]
+  funderAllocations: { id: string; percentage: number }[]
 }
 
 export type BillingLine = BillingInvoiceLine | BillingPayrollLine
@@ -1110,7 +1156,7 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
   const uniqueInvoices = [...new Set(invoiceIds)]
   const uniqueEntries = [...new Set(entryIds)]
 
-  const [invAllocs, invCats, payAllocs, payCats] = await Promise.all([
+  const [invAllocs, invFunders, invCats, payAllocs, payFunders, payCats] = await Promise.all([
     uniqueInvoices.length === 0
       ? Promise.resolve(
           [] as {
@@ -1118,8 +1164,6 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
             projectId: string
             percentage: number
             activityId: string | null
-            clientId: string | null
-            subsidyId: string | null
           }[]
         )
       : db
@@ -1128,11 +1172,27 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
             projectId: invoiceProjects.projectId,
             percentage: invoiceProjects.percentage,
             activityId: invoiceProjects.activityId,
-            clientId: invoiceProjects.clientId,
-            subsidyId: invoiceProjects.subsidyId,
           })
           .from(invoiceProjects)
           .where(inArray(invoiceProjects.invoiceId, uniqueInvoices)),
+    uniqueInvoices.length === 0
+      ? Promise.resolve(
+          [] as {
+            invoiceId: string
+            clientId: string | null
+            subsidyId: string | null
+            percentage: number
+          }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceFunders.invoiceId,
+            clientId: invoiceFunders.clientId,
+            subsidyId: invoiceFunders.subsidyId,
+            percentage: invoiceFunders.percentage,
+          })
+          .from(invoiceFunders)
+          .where(inArray(invoiceFunders.invoiceId, uniqueInvoices)),
     uniqueInvoices.length === 0
       ? Promise.resolve([] as { invoiceId: string; categoryId: string }[])
       : db
@@ -1150,8 +1210,6 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
             percentage: number
             costType: CostType
             activityId: string | null
-            clientId: string | null
-            subsidyId: string | null
             allocationId: string
           }[]
         )
@@ -1162,12 +1220,28 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
             percentage: payrollEntryProjects.percentage,
             costType: payrollEntryProjects.costType,
             activityId: payrollEntryProjects.activityId,
-            clientId: payrollEntryProjects.clientId,
-            subsidyId: payrollEntryProjects.subsidyId,
             allocationId: payrollEntryProjects.id,
           })
           .from(payrollEntryProjects)
           .where(inArray(payrollEntryProjects.entryId, uniqueEntries)),
+    uniqueEntries.length === 0
+      ? Promise.resolve(
+          [] as {
+            entryId: string
+            clientId: string | null
+            subsidyId: string | null
+            percentage: number
+          }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryFunders.entryId,
+            clientId: payrollEntryFunders.clientId,
+            subsidyId: payrollEntryFunders.subsidyId,
+            percentage: payrollEntryFunders.percentage,
+          })
+          .from(payrollEntryFunders)
+          .where(inArray(payrollEntryFunders.entryId, uniqueEntries)),
     uniqueEntries.length === 0
       ? Promise.resolve(
           [] as { allocationId: string; categoryId: string }[]
@@ -1185,19 +1259,24 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
           .where(inArray(payrollEntryProjects.entryId, uniqueEntries)),
   ])
 
-  const invoiceAllocations = new Map<
-    string,
-    BillingInvoiceLine["allocations"]
-  >()
+  const invoiceAllocations = new Map<string, BillingInvoiceLine["allocations"]>()
   for (const a of invAllocs) {
     const list = invoiceAllocations.get(a.invoiceId) ?? []
     list.push({
       id: a.projectId,
       percentage: a.percentage,
       activityId: a.activityId,
-      funderId: funderKeyFromColumns(a.clientId, a.subsidyId),
     })
     invoiceAllocations.set(a.invoiceId, list)
+  }
+
+  const invoiceFunderAllocations = new Map<string, BillingInvoiceLine["funderAllocations"]>()
+  for (const f of invFunders) {
+    const key = funderKeyFromColumns(f.clientId, f.subsidyId)
+    if (!key) continue
+    const list = invoiceFunderAllocations.get(f.invoiceId) ?? []
+    list.push({ id: key, percentage: f.percentage })
+    invoiceFunderAllocations.set(f.invoiceId, list)
   }
 
   const invoiceCategoryIds = new Map<string, string[]>()
@@ -1214,10 +1293,7 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
     catsByAllocation.set(c.allocationId, list)
   }
 
-  const payrollAllocations = new Map<
-    string,
-    BillingPayrollLine["allocations"]
-  >()
+  const payrollAllocations = new Map<string, BillingPayrollLine["allocations"]>()
   for (const a of payAllocs) {
     const list = payrollAllocations.get(a.entryId) ?? []
     list.push({
@@ -1226,12 +1302,26 @@ async function loadBillingLineEdits(invoiceIds: string[], entryIds: string[]) {
       costType: a.costType,
       categoryIds: catsByAllocation.get(a.allocationId) ?? [],
       activityId: a.activityId,
-      funderId: funderKeyFromColumns(a.clientId, a.subsidyId),
     })
     payrollAllocations.set(a.entryId, list)
   }
 
-  return { invoiceAllocations, invoiceCategoryIds, payrollAllocations }
+  const payrollFunderAllocations = new Map<string, BillingPayrollLine["funderAllocations"]>()
+  for (const f of payFunders) {
+    const key = funderKeyFromColumns(f.clientId, f.subsidyId)
+    if (!key) continue
+    const list = payrollFunderAllocations.get(f.entryId) ?? []
+    list.push({ id: key, percentage: f.percentage })
+    payrollFunderAllocations.set(f.entryId, list)
+  }
+
+  return {
+    invoiceAllocations,
+    invoiceFunderAllocations,
+    invoiceCategoryIds,
+    payrollAllocations,
+    payrollFunderAllocations,
+  }
 }
 
 /**
@@ -1258,16 +1348,12 @@ export async function getClientBilling(clientId: string, from: string, to: strin
 
   if (links.length === 0) return { projects: [], total: 0 }
   const ids = links.map((l) => l.project.id)
-  const pct = new Map(links.map((l) => [l.project.id, l.percentage]))
+  const linkIds = new Set(ids)
 
-  const [invRows, payRows, costsMap, categoryTotalsMap, activityTotalsMap, activityProjects, subsidyShares] =
+  const [invTouch, payTouch, costsMap, categoryTotalsMap, activityTotalsMap, activityProjects, subsidyShares] =
     await Promise.all([
       db
         .select({
-          projectId: invoiceProjects.projectId,
-          percentage: invoiceProjects.percentage,
-          clientId: invoiceProjects.clientId,
-          subsidyId: invoiceProjects.subsidyId,
           invoice: supplierInvoices,
         })
         .from(invoiceProjects)
@@ -1282,10 +1368,6 @@ export async function getClientBilling(clientId: string, from: string, to: strin
         .orderBy(asc(supplierInvoices.issueDate)),
       db
         .select({
-          projectId: payrollEntryProjects.projectId,
-          percentage: payrollEntryProjects.percentage,
-          clientId: payrollEntryProjects.clientId,
-          subsidyId: payrollEntryProjects.subsidyId,
           entryId: payrollEntries.id,
           month: payrollEntries.month,
           amount: payrollEntries.amount,
@@ -1319,6 +1401,118 @@ export async function getClientBilling(clientId: string, from: string, to: strin
         .where(eq(subsidyClients.clientId, clientId)),
     ])
 
+  const invoiceById = new Map<string, typeof supplierInvoices.$inferSelect>()
+  for (const r of invTouch) invoiceById.set(r.invoice.id, r.invoice)
+  const entryById = new Map<
+    string,
+    {
+      entryId: string
+      month: string
+      amount: number
+      personName: string
+      payrollId: string
+    }
+  >()
+  for (const r of payTouch) entryById.set(r.entryId, r)
+
+  const invoiceIds = [...invoiceById.keys()]
+  const entryIds = [...entryById.keys()]
+
+  const [allInvProjects, allPayProjects, invFunderRows, payFunderRows] = await Promise.all([
+    invoiceIds.length === 0
+      ? Promise.resolve(
+          [] as { invoiceId: string; projectId: string; percentage: number }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceProjects.invoiceId,
+            projectId: invoiceProjects.projectId,
+            percentage: invoiceProjects.percentage,
+          })
+          .from(invoiceProjects)
+          .where(inArray(invoiceProjects.invoiceId, invoiceIds)),
+    entryIds.length === 0
+      ? Promise.resolve(
+          [] as { entryId: string; projectId: string; percentage: number }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryProjects.entryId,
+            projectId: payrollEntryProjects.projectId,
+            percentage: payrollEntryProjects.percentage,
+          })
+          .from(payrollEntryProjects)
+          .where(inArray(payrollEntryProjects.entryId, entryIds)),
+    invoiceIds.length === 0
+      ? Promise.resolve(
+          [] as {
+            invoiceId: string
+            clientId: string | null
+            subsidyId: string | null
+            percentage: number
+          }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceFunders.invoiceId,
+            clientId: invoiceFunders.clientId,
+            subsidyId: invoiceFunders.subsidyId,
+            percentage: invoiceFunders.percentage,
+          })
+          .from(invoiceFunders)
+          .where(inArray(invoiceFunders.invoiceId, invoiceIds)),
+    entryIds.length === 0
+      ? Promise.resolve(
+          [] as {
+            entryId: string
+            clientId: string | null
+            subsidyId: string | null
+            percentage: number
+          }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryFunders.entryId,
+            clientId: payrollEntryFunders.clientId,
+            subsidyId: payrollEntryFunders.subsidyId,
+            percentage: payrollEntryFunders.percentage,
+          })
+          .from(payrollEntryFunders)
+          .where(inArray(payrollEntryFunders.entryId, entryIds)),
+  ])
+
+  const projectsByInvoice = new Map<string, ProjectAllocationShare[]>()
+  for (const p of allInvProjects) {
+    const list = projectsByInvoice.get(p.invoiceId) ?? []
+    list.push({ projectId: p.projectId, percentage: p.percentage })
+    projectsByInvoice.set(p.invoiceId, list)
+  }
+  const projectsByEntry = new Map<string, ProjectAllocationShare[]>()
+  for (const p of allPayProjects) {
+    const list = projectsByEntry.get(p.entryId) ?? []
+    list.push({ projectId: p.projectId, percentage: p.percentage })
+    projectsByEntry.set(p.entryId, list)
+  }
+  const fundersByInvoice = new Map<string, FunderAllocationShare[]>()
+  for (const f of invFunderRows) {
+    const list = fundersByInvoice.get(f.invoiceId) ?? []
+    list.push({ clientId: f.clientId, subsidyId: f.subsidyId, percentage: f.percentage })
+    fundersByInvoice.set(f.invoiceId, list)
+  }
+  const fundersByEntry = new Map<string, FunderAllocationShare[]>()
+  for (const f of payFunderRows) {
+    const list = fundersByEntry.get(f.entryId) ?? []
+    list.push({ clientId: f.clientId, subsidyId: f.subsidyId, percentage: f.percentage })
+    fundersByEntry.set(f.entryId, list)
+  }
+
+  const mixProjectIds = [
+    ...new Set([
+      ...allInvProjects.map((p) => p.projectId),
+      ...allPayProjects.map((p) => p.projectId),
+    ]),
+  ]
+  const mixes = await loadProjectFunderMixes(mixProjectIds)
   const subsidyClientPct = new Map(subsidyShares.map((s) => [s.subsidyId, s.percentage]))
   const projectsWithActivities = new Set(activityProjects.map((r) => r.projectId))
 
@@ -1338,7 +1532,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
 
   const pendingInvoices: {
     group: (typeof result)[number]
-    invoice: (typeof invRows)[number]["invoice"]
+    invoice: typeof supplierInvoices.$inferSelect
     projectPct: number
     clientPct: number
     amount: number
@@ -1356,49 +1550,60 @@ export async function getClientBilling(clientId: string, from: string, to: strin
     cost: number
   }[] = []
 
-  for (const r of invRows) {
-    const g = byId.get(r.projectId)!
-    const share = clientShareOfAllocation(
+  for (const [invoiceId, invoice] of invoiceById) {
+    const shares = clientShareByProject({
       clientId,
-      r,
-      pct.get(r.projectId)!,
-      subsidyClientPct
-    )
-    if (share <= 0) continue
-    const cost = invoiceCost(r.invoice)
-    const amount = round2((cost * r.percentage * share) / 10000)
-    pendingInvoices.push({
-      group: g,
-      invoice: r.invoice,
-      projectPct: r.percentage,
-      clientPct: share,
-      amount,
-      cost,
+      projects: projectsByInvoice.get(invoiceId) ?? [],
+      funders: fundersByInvoice.get(invoiceId) ?? [],
+      mixes,
+      subsidyClientPct,
     })
-    g.invoices = round2(g.invoices + amount)
+    const cost = invoiceCost(invoice)
+    for (const [projectId, share] of shares) {
+      if (!linkIds.has(projectId) || share.percentage <= 0) continue
+      const g = byId.get(projectId)!
+      const amount = round2((cost * share.percentage) / 100)
+      const projectPct = share.projectPct
+      const clientPct = projectPct > 0 ? round2((share.percentage / projectPct) * 100) : 0
+      pendingInvoices.push({
+        group: g,
+        invoice,
+        projectPct,
+        clientPct,
+        amount,
+        cost,
+      })
+      g.invoices = round2(g.invoices + amount)
+    }
   }
-  for (const r of payRows) {
-    const g = byId.get(r.projectId)!
-    const share = clientShareOfAllocation(
+
+  for (const [entryId, entry] of entryById) {
+    const shares = clientShareByProject({
       clientId,
-      r,
-      pct.get(r.projectId)!,
-      subsidyClientPct
-    )
-    if (share <= 0) continue
-    const amount = round2((r.amount * r.percentage * share) / 10000)
-    pendingPayroll.push({
-      group: g,
-      entryId: r.entryId,
-      payrollId: r.payrollId,
-      month: r.month,
-      personName: r.personName,
-      projectPct: r.percentage,
-      clientPct: share,
-      amount,
-      cost: r.amount,
+      projects: projectsByEntry.get(entryId) ?? [],
+      funders: fundersByEntry.get(entryId) ?? [],
+      mixes,
+      subsidyClientPct,
     })
-    g.payroll = round2(g.payroll + amount)
+    for (const [projectId, share] of shares) {
+      if (!linkIds.has(projectId) || share.percentage <= 0) continue
+      const g = byId.get(projectId)!
+      const amount = round2((entry.amount * share.percentage) / 100)
+      const projectPct = share.projectPct
+      const clientPct = projectPct > 0 ? round2((share.percentage / projectPct) * 100) : 0
+      pendingPayroll.push({
+        group: g,
+        entryId,
+        payrollId: entry.payrollId,
+        month: entry.month,
+        personName: entry.personName,
+        projectPct,
+        clientPct,
+        amount,
+        cost: entry.amount,
+      })
+      g.payroll = round2(g.payroll + amount)
+    }
   }
 
   const edits = await loadBillingLineEdits(
@@ -1418,6 +1623,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
       amount: p.amount,
       invoice: p.invoice,
       allocations: edits.invoiceAllocations.get(p.invoice.id) ?? [],
+      funderAllocations: edits.invoiceFunderAllocations.get(p.invoice.id) ?? [],
       categoryIds: edits.invoiceCategoryIds.get(p.invoice.id) ?? [],
     })
   }
@@ -1434,6 +1640,7 @@ export async function getClientBilling(clientId: string, from: string, to: strin
       payrollId: p.payrollId,
       month: p.month,
       allocations: edits.payrollAllocations.get(p.entryId) ?? [],
+      funderAllocations: edits.payrollFunderAllocations.get(p.entryId) ?? [],
     })
   }
 
@@ -1477,16 +1684,12 @@ export async function getSubsidyBilling(subsidyId: string) {
 
   if (links.length === 0) return { projects: [], total: 0 }
   const ids = links.map((l) => l.project.id)
-  const pct = new Map(links.map((l) => [l.project.id, l.percentage]))
+  const linkIds = new Set(ids)
 
-  const [invRows, payRows, costsMap, categoryTotalsMap, activityTotalsMap, activityProjects] =
+  const [invTouch, payTouch, costsMap, categoryTotalsMap, activityTotalsMap, activityProjects] =
     await Promise.all([
       db
         .select({
-          projectId: invoiceProjects.projectId,
-          percentage: invoiceProjects.percentage,
-          clientId: invoiceProjects.clientId,
-          subsidyId: invoiceProjects.subsidyId,
           invoice: supplierInvoices,
         })
         .from(invoiceProjects)
@@ -1495,10 +1698,6 @@ export async function getSubsidyBilling(subsidyId: string) {
         .orderBy(asc(supplierInvoices.issueDate)),
       db
         .select({
-          projectId: payrollEntryProjects.projectId,
-          percentage: payrollEntryProjects.percentage,
-          clientId: payrollEntryProjects.clientId,
-          subsidyId: payrollEntryProjects.subsidyId,
           entryId: payrollEntries.id,
           month: payrollEntries.month,
           amount: payrollEntries.amount,
@@ -1519,6 +1718,118 @@ export async function getSubsidyBilling(subsidyId: string) {
         .where(inArray(projectActivities.projectId, ids)),
     ])
 
+  const invoiceById = new Map<string, typeof supplierInvoices.$inferSelect>()
+  for (const r of invTouch) invoiceById.set(r.invoice.id, r.invoice)
+  const entryById = new Map<
+    string,
+    {
+      entryId: string
+      month: string
+      amount: number
+      personName: string
+      payrollId: string
+    }
+  >()
+  for (const r of payTouch) entryById.set(r.entryId, r)
+
+  const invoiceIds = [...invoiceById.keys()]
+  const entryIds = [...entryById.keys()]
+
+  const [allInvProjects, allPayProjects, invFunderRows, payFunderRows] = await Promise.all([
+    invoiceIds.length === 0
+      ? Promise.resolve(
+          [] as { invoiceId: string; projectId: string; percentage: number }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceProjects.invoiceId,
+            projectId: invoiceProjects.projectId,
+            percentage: invoiceProjects.percentage,
+          })
+          .from(invoiceProjects)
+          .where(inArray(invoiceProjects.invoiceId, invoiceIds)),
+    entryIds.length === 0
+      ? Promise.resolve(
+          [] as { entryId: string; projectId: string; percentage: number }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryProjects.entryId,
+            projectId: payrollEntryProjects.projectId,
+            percentage: payrollEntryProjects.percentage,
+          })
+          .from(payrollEntryProjects)
+          .where(inArray(payrollEntryProjects.entryId, entryIds)),
+    invoiceIds.length === 0
+      ? Promise.resolve(
+          [] as {
+            invoiceId: string
+            clientId: string | null
+            subsidyId: string | null
+            percentage: number
+          }[]
+        )
+      : db
+          .select({
+            invoiceId: invoiceFunders.invoiceId,
+            clientId: invoiceFunders.clientId,
+            subsidyId: invoiceFunders.subsidyId,
+            percentage: invoiceFunders.percentage,
+          })
+          .from(invoiceFunders)
+          .where(inArray(invoiceFunders.invoiceId, invoiceIds)),
+    entryIds.length === 0
+      ? Promise.resolve(
+          [] as {
+            entryId: string
+            clientId: string | null
+            subsidyId: string | null
+            percentage: number
+          }[]
+        )
+      : db
+          .select({
+            entryId: payrollEntryFunders.entryId,
+            clientId: payrollEntryFunders.clientId,
+            subsidyId: payrollEntryFunders.subsidyId,
+            percentage: payrollEntryFunders.percentage,
+          })
+          .from(payrollEntryFunders)
+          .where(inArray(payrollEntryFunders.entryId, entryIds)),
+  ])
+
+  const projectsByInvoice = new Map<string, ProjectAllocationShare[]>()
+  for (const p of allInvProjects) {
+    const list = projectsByInvoice.get(p.invoiceId) ?? []
+    list.push({ projectId: p.projectId, percentage: p.percentage })
+    projectsByInvoice.set(p.invoiceId, list)
+  }
+  const projectsByEntry = new Map<string, ProjectAllocationShare[]>()
+  for (const p of allPayProjects) {
+    const list = projectsByEntry.get(p.entryId) ?? []
+    list.push({ projectId: p.projectId, percentage: p.percentage })
+    projectsByEntry.set(p.entryId, list)
+  }
+  const fundersByInvoice = new Map<string, FunderAllocationShare[]>()
+  for (const f of invFunderRows) {
+    const list = fundersByInvoice.get(f.invoiceId) ?? []
+    list.push({ clientId: f.clientId, subsidyId: f.subsidyId, percentage: f.percentage })
+    fundersByInvoice.set(f.invoiceId, list)
+  }
+  const fundersByEntry = new Map<string, FunderAllocationShare[]>()
+  for (const f of payFunderRows) {
+    const list = fundersByEntry.get(f.entryId) ?? []
+    list.push({ clientId: f.clientId, subsidyId: f.subsidyId, percentage: f.percentage })
+    fundersByEntry.set(f.entryId, list)
+  }
+
+  const mixProjectIds = [
+    ...new Set([
+      ...allInvProjects.map((p) => p.projectId),
+      ...allPayProjects.map((p) => p.projectId),
+    ]),
+  ]
+  const mixes = await loadProjectFunderMixes(mixProjectIds)
   const projectsWithActivities = new Set(activityProjects.map((r) => r.projectId))
 
   const result = links.map((l) => ({
@@ -1537,7 +1848,7 @@ export async function getSubsidyBilling(subsidyId: string) {
 
   const pendingInvoices: {
     group: (typeof result)[number]
-    invoice: (typeof invRows)[number]["invoice"]
+    invoice: typeof supplierInvoices.$inferSelect
     projectPct: number
     clientPct: number
     amount: number
@@ -1555,39 +1866,58 @@ export async function getSubsidyBilling(subsidyId: string) {
     cost: number
   }[] = []
 
-  for (const r of invRows) {
-    const g = byId.get(r.projectId)!
-    const share = subsidyShareOfAllocation(subsidyId, r, pct.get(r.projectId)!)
-    if (share <= 0) continue
-    const cost = invoiceCost(r.invoice)
-    const amount = round2((cost * r.percentage * share) / 10000)
-    pendingInvoices.push({
-      group: g,
-      invoice: r.invoice,
-      projectPct: r.percentage,
-      clientPct: share,
-      amount,
-      cost,
+  for (const [invoiceId, invoice] of invoiceById) {
+    const shares = subsidyShareByProject({
+      subsidyId,
+      projects: projectsByInvoice.get(invoiceId) ?? [],
+      funders: fundersByInvoice.get(invoiceId) ?? [],
+      mixes,
     })
-    g.invoices = round2(g.invoices + amount)
+    const cost = invoiceCost(invoice)
+    for (const [projectId, share] of shares) {
+      if (!linkIds.has(projectId) || share.percentage <= 0) continue
+      const g = byId.get(projectId)!
+      const amount = round2((cost * share.percentage) / 100)
+      const projectPct = share.projectPct
+      const clientPct = projectPct > 0 ? round2((share.percentage / projectPct) * 100) : 0
+      pendingInvoices.push({
+        group: g,
+        invoice,
+        projectPct,
+        clientPct,
+        amount,
+        cost,
+      })
+      g.invoices = round2(g.invoices + amount)
+    }
   }
-  for (const r of payRows) {
-    const g = byId.get(r.projectId)!
-    const share = subsidyShareOfAllocation(subsidyId, r, pct.get(r.projectId)!)
-    if (share <= 0) continue
-    const amount = round2((r.amount * r.percentage * share) / 10000)
-    pendingPayroll.push({
-      group: g,
-      entryId: r.entryId,
-      payrollId: r.payrollId,
-      month: r.month,
-      personName: r.personName,
-      projectPct: r.percentage,
-      clientPct: share,
-      amount,
-      cost: r.amount,
+
+  for (const [entryId, entry] of entryById) {
+    const shares = subsidyShareByProject({
+      subsidyId,
+      projects: projectsByEntry.get(entryId) ?? [],
+      funders: fundersByEntry.get(entryId) ?? [],
+      mixes,
     })
-    g.payroll = round2(g.payroll + amount)
+    for (const [projectId, share] of shares) {
+      if (!linkIds.has(projectId) || share.percentage <= 0) continue
+      const g = byId.get(projectId)!
+      const amount = round2((entry.amount * share.percentage) / 100)
+      const projectPct = share.projectPct
+      const clientPct = projectPct > 0 ? round2((share.percentage / projectPct) * 100) : 0
+      pendingPayroll.push({
+        group: g,
+        entryId,
+        payrollId: entry.payrollId,
+        month: entry.month,
+        personName: entry.personName,
+        projectPct,
+        clientPct,
+        amount,
+        cost: entry.amount,
+      })
+      g.payroll = round2(g.payroll + amount)
+    }
   }
 
   const edits = await loadBillingLineEdits(
@@ -1607,6 +1937,7 @@ export async function getSubsidyBilling(subsidyId: string) {
       amount: p.amount,
       invoice: p.invoice,
       allocations: edits.invoiceAllocations.get(p.invoice.id) ?? [],
+      funderAllocations: edits.invoiceFunderAllocations.get(p.invoice.id) ?? [],
       categoryIds: edits.invoiceCategoryIds.get(p.invoice.id) ?? [],
     })
   }
@@ -1623,6 +1954,7 @@ export async function getSubsidyBilling(subsidyId: string) {
       payrollId: p.payrollId,
       month: p.month,
       allocations: edits.payrollAllocations.get(p.entryId) ?? [],
+      funderAllocations: edits.payrollFunderAllocations.get(p.entryId) ?? [],
     })
   }
 
@@ -1735,6 +2067,7 @@ export async function listInvoices(filters: {
     with: {
       supplier: { columns: { id: true, name: true } },
       projects: { with: { project: { columns: { id: true, name: true } } } },
+      funders: true,
       categories: { with: { category: { columns: { id: true, name: true } } } },
     },
   })
@@ -1756,8 +2089,13 @@ export async function listInvoices(filters: {
         name: p.project.name,
         percentage: p.percentage,
         activityId: p.activityId,
-        funderId: funderKeyFromColumns(p.clientId, p.subsidyId),
       })),
+      funderAllocations: r.funders
+        .map((f) => {
+          const id = funderKeyFromColumns(f.clientId, f.subsidyId)
+          return id ? { id, percentage: f.percentage } : null
+        })
+        .filter((f): f is { id: string; percentage: number } => f !== null),
       categories,
       categoryIds: categories.map((c) => c.id),
     }
@@ -1875,6 +2213,7 @@ export async function getPayroll(id: string) {
               categories: { with: { category: { columns: { id: true, name: true } } } },
             },
           },
+          funders: true,
         },
       },
     },
@@ -1895,11 +2234,16 @@ export async function getPayroll(id: string) {
           percentage: a.percentage,
           costType: a.costType,
           activityId: a.activityId,
-          funderId: funderKeyFromColumns(a.clientId, a.subsidyId),
           categories,
           categoryIds: categories.map((c) => c.id),
         }
       }),
+      funderAllocations: e.funders
+        .map((f) => {
+          const id = funderKeyFromColumns(f.clientId, f.subsidyId)
+          return id ? { id, percentage: f.percentage } : null
+        })
+        .filter((f): f is { id: string; percentage: number } => f !== null),
       assigned: round2(e.projects.reduce((s, a) => s + a.percentage, 0)),
     })),
   }

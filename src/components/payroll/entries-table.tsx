@@ -35,10 +35,10 @@ type Entry = {
     percentage: number;
     costType: "direct" | "indirect";
     activityId?: string | null;
-    funderId?: string | null;
     categoryIds?: string[];
     categories?: { id: string; name: string }[];
   }[];
+  funderAllocations?: { id: string; percentage: number }[];
 };
 
 export function EntriesTable({
@@ -212,8 +212,8 @@ export function EntriesTable({
                         costType: a.costType,
                         categoryIds: a.categoryIds ?? [],
                         activityId: a.activityId ?? null,
-                        funderId: a.funderId ?? null,
                       }))}
+                      funderAllocations={e.funderAllocations ?? []}
                       projectOptions={projectOptions}
                       activitiesByProject={activitiesByProject}
                       fundersByProject={fundersByProject}
@@ -230,18 +230,25 @@ export function EntriesTable({
                             ? activitiesByProject[a.projectId]?.find((x) => x.id === a.activityId)
                                 ?.name
                             : null
-                          const funderName = a.funderId
-                            ? fundersByProject[a.projectId]?.find((x) => x.id === a.funderId)?.name
-                            : null
                           return (
-                            <Badge key={`${a.projectId}-${a.funderId ?? ""}-${i}`} variant="secondary">
+                            <Badge key={`${a.projectId}-${i}`} variant="secondary">
                               {a.name} · {a.percentage} %
                               {a.costType === "indirect" ? " · ind." : ""}
                               {activityName ? ` · ${activityName}` : ""}
-                              {funderName ? ` · ${funderName}` : ""}
                               {a.categories?.length
                                 ? ` · ${a.categories.map((c) => c.name).join(", ")}`
                                 : ""}
+                            </Badge>
+                          )
+                        })}
+                        {(e.funderAllocations ?? []).map((f) => {
+                          const funderName =
+                            Object.values(fundersByProject)
+                              .flat()
+                              .find((x) => x.id === f.id)?.name ?? f.id
+                          return (
+                            <Badge key={f.id} variant="outline">
+                              {funderName} · {f.percentage} %
                             </Badge>
                           )
                         })}

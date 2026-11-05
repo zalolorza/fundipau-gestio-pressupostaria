@@ -6,7 +6,6 @@ import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button";
-import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import { InteractiveTableRow } from "@/components/app/interactive-table-row";
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog";
 import {
@@ -43,16 +42,13 @@ import { formatDate, formatEuro, formatMonth, formatPct } from "@/lib/format";
 import type { ActivityRef } from "@/components/projects/project-activities";
 import {
   setInvoiceProjectActivity,
-  setInvoiceProjectFunder,
   setPayrollEntryProjectActivity,
-  setPayrollEntryProjectFunder,
   unassignInvoiceAllocation,
   unassignPayrollAllocations,
 } from "@/server/actions";
 import type { SupplierOption } from "@/server/queries";
 
 const ACTIVITY_NONE = "__none__";
-const FUNDER_NONE = "__none__";
 
 type Inv = SupplierInvoice & {
   allocationId: string;
@@ -63,21 +59,17 @@ type Inv = SupplierInvoice & {
     id: string;
     percentage: number;
     activityId?: string | null;
-    funderId?: string | null;
   }[];
+  funderAllocations?: { id: string; percentage: number }[];
   categories: { id: string; name: string }[];
   categoryIds: string[];
   activityId: string | null;
   activityName: string | null;
-  funderId: string | null;
-  funderName: string | null;
 };
 
 type CostTypeFilter = "all" | CostType;
 type CategoryFilter = "all" | "none" | string;
 type ActivityFilter = "all" | "none" | string;
-type FunderFilter = "all" | "none" | string;
-type FunderRef = { id: string; name: string };
 
 function CostTypeFilterSelect({
   value,
@@ -155,34 +147,6 @@ function ActivityFilterSelect({
   );
 }
 
-function FunderFilterSelect({
-  value,
-  onChange,
-  funders,
-}: {
-  value: FunderFilter;
-  onChange: (v: FunderFilter) => void;
-  funders: FunderRef[];
-}) {
-  if (funders.length === 0) return null;
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-48" aria-label="Finançador">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="all">Tots els finançadors</SelectItem>
-        <SelectItem value="none">Finançament dividit</SelectItem>
-        {funders.map((f) => (
-          <SelectItem key={f.id} value={f.id}>
-            <FunderOptionLabel id={f.id} name={f.name} />
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
 function matchesCategory(
   categoryIds: string[],
   filter: CategoryFilter,
@@ -199,15 +163,6 @@ function matchesActivity(
   if (filter === "all") return true;
   if (filter === "none") return !activityId;
   return activityId === filter;
-}
-
-function matchesFunder(
-  funderId: string | null | undefined,
-  filter: FunderFilter,
-): boolean {
-  if (filter === "all") return true;
-  if (filter === "none") return !funderId;
-  return funderId === filter;
 }
 
 function ActivitySelect({
@@ -248,44 +203,6 @@ function ActivitySelect({
   );
 }
 
-function FunderSelect({
-  value,
-  funders,
-  disabled,
-  onChange,
-}: {
-  value: string | null;
-  funders: FunderRef[];
-  disabled?: boolean;
-  onChange: (funderId: string | null) => void;
-}) {
-  if (funders.length === 0) return null;
-  return (
-    <Select
-      value={value ?? FUNDER_NONE}
-      disabled={disabled}
-      onValueChange={(v) => onChange(v === FUNDER_NONE ? null : v)}
-    >
-      <SelectTrigger
-        className="h-7 w-36 text-xs"
-        aria-label="Finançador"
-        onClick={(e) => e.stopPropagation()}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <SelectValue placeholder="Finançament dividit" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={FUNDER_NONE}>Finançament dividit</SelectItem>
-        {funders.map((f) => (
-          <SelectItem key={f.id} value={f.id}>
-            <FunderOptionLabel id={f.id} name={f.name} />
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
 function InvoiceActivitySelect({
   allocationId,
   activityId,
@@ -304,31 +221,6 @@ function InvoiceActivitySelect({
       onChange={(next) =>
         start(async () => {
           const res = await setInvoiceProjectActivity(allocationId, next);
-          if (!res.ok) toast.error(res.error);
-        })
-      }
-    />
-  );
-}
-
-function InvoiceFunderSelect({
-  allocationId,
-  funderId,
-  funders,
-}: {
-  allocationId: string;
-  funderId: string | null;
-  funders: FunderRef[];
-}) {
-  const [pending, start] = useTransition();
-  return (
-    <FunderSelect
-      value={funderId}
-      funders={funders}
-      disabled={pending}
-      onChange={(next) =>
-        start(async () => {
-          const res = await setInvoiceProjectFunder(allocationId, next);
           if (!res.ok) toast.error(res.error);
         })
       }
@@ -361,31 +253,6 @@ function PayrollActivitySelect({
   );
 }
 
-function PayrollFunderSelect({
-  allocationId,
-  funderId,
-  funders,
-}: {
-  allocationId: string;
-  funderId: string | null;
-  funders: FunderRef[];
-}) {
-  const [pending, start] = useTransition();
-  return (
-    <FunderSelect
-      value={funderId}
-      funders={funders}
-      disabled={pending}
-      onChange={(next) =>
-        start(async () => {
-          const res = await setPayrollEntryProjectFunder(allocationId, next);
-          if (!res.ok) toast.error(res.error);
-        })
-      }
-    />
-  );
-}
-
 export function AssignedInvoices({
   projectId,
   projectName,
@@ -396,7 +263,6 @@ export function AssignedInvoices({
   suppliers,
   categories = [],
   activities = [],
-  funders = [],
 }: {
   projectId: string;
   projectName: string;
@@ -407,24 +273,21 @@ export function AssignedInvoices({
   suppliers: SupplierOption[];
   categories?: { id: string; name: string }[];
   activities?: ActivityRef[];
-  funders?: FunderRef[];
 }) {
   const [pending, start] = useTransition();
   const [editId, setEditId] = useState<string | null>(null);
   const [tipus, setTipus] = useState<CostTypeFilter>("all");
   const [categoria, setCategoria] = useState<CategoryFilter>("all");
   const [activitat, setActivitat] = useState<ActivityFilter>("all");
-  const [financador, setFinancador] = useState<FunderFilter>("all");
   const filtered = useMemo(
     () =>
       invoices.filter(
         (i) =>
           (tipus === "all" || i.costType === tipus) &&
           matchesCategory(i.categoryIds, categoria) &&
-          matchesActivity(i.activityId, activitat) &&
-          matchesFunder(i.funderId, financador),
+          matchesActivity(i.activityId, activitat),
       ),
-    [invoices, tipus, categoria, activitat, financador],
+    [invoices, tipus, categoria, activitat],
   );
 
   if (invoices.length === 0)
@@ -455,11 +318,6 @@ export function AssignedInvoices({
             onChange={setActivitat}
             activities={activities}
           />
-          <FunderFilterSelect
-            value={financador}
-            onChange={setFinancador}
-            funders={funders}
-          />
         </div>
       </div>
       {filtered.length === 0 ? (
@@ -474,7 +332,6 @@ export function AssignedInvoices({
               <TableHead>Proveïdor · Número</TableHead>
               <TableHead>Tipus</TableHead>
               {activities.length > 0 && <TableHead>Activitat</TableHead>}
-              {funders.length > 0 && <TableHead>Finançador</TableHead>}
               <TableHead>Descripció</TableHead>
               <TableHead className="text-right">Cost</TableHead>
               <TableHead className="text-right">%</TableHead>
@@ -490,12 +347,11 @@ export function AssignedInvoices({
                 percentage: _p,
                 imputed: _im,
                 allocations,
+                funderAllocations,
                 categories: cats,
                 categoryIds,
                 activityId: _aid,
                 activityName: _an,
-                funderId: _fid,
-                funderName: _fn,
                 ...invoice
               } = i;
               return (
@@ -513,8 +369,8 @@ export function AssignedInvoices({
                         id: a.id,
                         percentage: a.percentage,
                         activityId: a.activityId ?? null,
-                        funderId: a.funderId ?? null,
                       }))}
+                      funderAllocations={funderAllocations}
                       categoryIds={categoryIds}
                       categories={categories}
                       projectOptions={projectOptions}
@@ -562,15 +418,6 @@ export function AssignedInvoices({
                         allocationId={i.allocationId}
                         activityId={i.activityId}
                         activities={activities}
-                      />
-                    </TableCell>
-                  )}
-                  {funders.length > 0 && (
-                    <TableCell>
-                      <InvoiceFunderSelect
-                        allocationId={i.allocationId}
-                        funderId={i.funderId}
-                        funders={funders}
                       />
                     </TableCell>
                   )}
@@ -629,8 +476,7 @@ type PersonGroup = {
     categoryIds: string[];
     activityId: string | null;
     activityName: string | null;
-    funderId: string | null;
-    funderName: string | null;
+    funderAllocations?: { id: string; percentage: number }[];
   }[];
 };
 
@@ -641,7 +487,6 @@ function editFromGroup(g: PersonGroup): PayrollAssignmentEdit {
   const catKey = (ids: string[]) => [...ids].sort().join(",");
   const catSets = [...new Set(g.entries.map((e) => catKey(e.categoryIds)))];
   const activityIds = [...new Set(g.entries.map((e) => e.activityId ?? ""))];
-  const funderIds = [...new Set(g.entries.map((e) => e.funderId ?? ""))];
   return {
     payrollId: g.payrollId,
     from: months[0]!,
@@ -650,7 +495,6 @@ function editFromGroup(g: PersonGroup): PayrollAssignmentEdit {
     costType: types.length === 1 ? types[0]! : "direct",
     categoryIds: catSets.length === 1 ? g.entries[0]!.categoryIds : [],
     activityId: activityIds.length === 1 ? g.entries[0]!.activityId : null,
-    funderId: funderIds.length === 1 ? g.entries[0]!.funderId : null,
     allocationIds: g.entries.map((e) => e.allocationId),
   };
 }
@@ -662,7 +506,6 @@ export function AssignedPayroll({
   payrolls,
   categories = [],
   activities = [],
-  funders = [],
   defaultFrom,
   defaultTo,
 }: {
@@ -672,7 +515,6 @@ export function AssignedPayroll({
   payrolls: PayrollOption[];
   categories?: { id: string; name: string }[];
   activities?: ActivityRef[];
-  funders?: FunderRef[];
   defaultFrom?: string | null;
   defaultTo?: string | null;
 }) {
@@ -680,7 +522,6 @@ export function AssignedPayroll({
   const [tipus, setTipus] = useState<CostTypeFilter>("all");
   const [categoria, setCategoria] = useState<CategoryFilter>("all");
   const [activitat, setActivitat] = useState<ActivityFilter>("all");
-  const [financador, setFinancador] = useState<FunderFilter>("all");
   const [edit, setEdit] = useState<PayrollAssignmentEdit | null>(null);
 
   const filtered = useMemo(() => {
@@ -690,8 +531,7 @@ export function AssignedPayroll({
           (e) =>
             (tipus === "all" || e.costType === tipus) &&
             matchesCategory(e.categoryIds, categoria) &&
-            matchesActivity(e.activityId, activitat) &&
-            matchesFunder(e.funderId, financador),
+            matchesActivity(e.activityId, activitat),
         );
         if (!entries.length) return null;
         return {
@@ -701,7 +541,7 @@ export function AssignedPayroll({
         };
       })
       .filter((g): g is PersonGroup => g != null);
-  }, [groups, tipus, categoria, activitat, financador]);
+  }, [groups, tipus, categoria, activitat]);
 
   if (groups.length === 0)
     return (
@@ -737,11 +577,6 @@ export function AssignedPayroll({
             onChange={setActivitat}
             activities={activities}
           />
-          <FunderFilterSelect
-            value={financador}
-            onChange={setFinancador}
-            funders={funders}
-          />
         </div>
       </div>
       <AssignPayrollDialog
@@ -749,7 +584,6 @@ export function AssignedPayroll({
         payrolls={payrolls}
         categories={categories}
         activities={activities}
-        funders={funders}
         defaultFrom={defaultFrom}
         defaultTo={defaultTo}
         edit={edit}
@@ -780,11 +614,6 @@ export function AssignedPayroll({
                 g.entries
                   .map((e) => e.activityName)
                   .filter(Boolean) as string[],
-              ),
-            ];
-            const funderNames = [
-              ...new Set(
-                g.entries.map((e) => e.funderName).filter(Boolean) as string[],
               ),
             ];
             return (
@@ -821,11 +650,6 @@ export function AssignedPayroll({
                     </Badge>
                   ))}
                   {activityNames.map((name) => (
-                    <Badge key={name} variant="outline" className="font-normal">
-                      {name}
-                    </Badge>
-                  ))}
-                  {funderNames.map((name) => (
                     <Badge key={name} variant="outline" className="font-normal">
                       {name}
                     </Badge>
@@ -874,9 +698,6 @@ export function AssignedPayroll({
                         {activities.length > 0 && (
                           <TableHead>Activitat</TableHead>
                         )}
-                        {funders.length > 0 && (
-                          <TableHead>Finançador</TableHead>
-                        )}
                         <TableHead className="text-right">Nòmina</TableHead>
                         <TableHead className="text-right">%</TableHead>
                         <TableHead className="text-right">Imputat</TableHead>
@@ -896,7 +717,6 @@ export function AssignedPayroll({
                               costType: e.costType,
                               categoryIds: e.categoryIds,
                               activityId: e.activityId,
-                              funderId: e.funderId,
                               allocationIds: [e.allocationId],
                             })
                           }
@@ -932,15 +752,6 @@ export function AssignedPayroll({
                                 allocationId={e.allocationId}
                                 activityId={e.activityId}
                                 activities={activities}
-                              />
-                            </TableCell>
-                          )}
-                          {funders.length > 0 && (
-                            <TableCell>
-                              <PayrollFunderSelect
-                                allocationId={e.allocationId}
-                                funderId={e.funderId}
-                                funders={funders}
                               />
                             </TableCell>
                           )}

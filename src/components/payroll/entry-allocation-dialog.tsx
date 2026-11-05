@@ -16,13 +16,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { FieldDescription, FieldLegend, FieldSet } from "@/components/ui/field"
 import { formatMonth } from "@/lib/format"
+import { unionFundersFromProjects } from "@/lib/funders"
 import { setPayrollEntryProjects } from "@/server/actions"
 
 export function EntryAllocationDialog({
   payrollId,
   month,
   allocations,
+  funderAllocations = [],
   projectOptions,
   activitiesByProject = {},
   fundersByProject = {},
@@ -34,6 +37,7 @@ export function EntryAllocationDialog({
   payrollId: string
   month: string
   allocations: AllocationRow[]
+  funderAllocations?: AllocationRow[]
   projectOptions: { id: string; name: string; hint?: string }[]
   activitiesByProject?: Record<string, { id: string; name: string }[]>
   fundersByProject?: Record<string, { id: string; name: string }[]>
@@ -47,12 +51,17 @@ export function EntryAllocationDialog({
   const setOpen = onOpenChange ?? setUncontrolledOpen
   const [scopeOpen, setScopeOpen] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>(allocations)
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>(funderAllocations)
   const [catalog, setCatalog] = useState(initialCategories)
   const [pending, start] = useTransition()
+  const funderOptions = unionFundersFromProjects(
+    alloc.map((a) => a.id),
+    fundersByProject
+  )
 
   function apply(scope: "current" | "future" | "all") {
     start(async () => {
-      const res = await setPayrollEntryProjects(payrollId, month, scope, alloc)
+      const res = await setPayrollEntryProjects(payrollId, month, scope, alloc, funderAlloc)
       if (!res.ok) return void toast.error(res.error)
       toast.success(`Assignació aplicada a ${res.data?.count} ${res.data?.count === 1 ? "mes" : "mesos"}`)
       setScopeOpen(false)
@@ -67,6 +76,7 @@ export function EntryAllocationDialog({
           setOpen(o)
           if (o) {
             setAlloc(allocations)
+            setFunderAlloc(funderAllocations)
             setCatalog(initialCategories)
           }
         }}
@@ -77,24 +87,44 @@ export function EntryAllocationDialog({
             <DialogTitle>Projectes · {formatMonth(month)}</DialogTitle>
             <DialogDescription>
               Percentatge de la nòmina imputat a cada projecte i, opcionalment, l&apos;activitat
-              i el finançador.
+              i els finançadors.
             </DialogDescription>
           </DialogHeader>
-          <AllocationEditor
-            value={alloc}
-            onChange={setAlloc}
-            options={projectOptions}
-            mode="max"
-            itemLabel="projecte"
-            emptyText="Sense assignar a cap projecte"
-            withCostType
-            categories={catalog}
-            onCatalogChange={setCatalog}
-            activitiesByProject={activitiesByProject}
-            fundersByProject={fundersByProject}
-            allowDuplicateIds
-            allowOver100
-          />
+          <div className="space-y-6">
+            <FieldSet>
+              <FieldLegend>Projectes</FieldLegend>
+              <AllocationEditor
+                value={alloc}
+                onChange={setAlloc}
+                options={projectOptions}
+                mode="max"
+                itemLabel="projecte"
+                emptyText="Sense assignar a cap projecte"
+                withCostType
+                categories={catalog}
+                onCatalogChange={setCatalog}
+                activitiesByProject={activitiesByProject}
+                allowDuplicateIds
+                allowOver100
+              />
+            </FieldSet>
+            <FieldSet>
+              <FieldLegend>Finançadors</FieldLegend>
+              <FieldDescription>
+                Capa opcional de finançadors explícits. El residual es reparteix segons el mix
+                dels projectes assignats.
+              </FieldDescription>
+              <AllocationEditor
+                value={funderAlloc}
+                onChange={setFunderAlloc}
+                options={funderOptions}
+                mode="max"
+                itemLabel="finançador"
+                emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                funderOptions
+              />
+            </FieldSet>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel·la
@@ -105,7 +135,9 @@ export function EntryAllocationDialog({
                   allowDuplicateIds: true,
                   allowOver100: true,
                 })
-                if (err) return void toast.error(err)
+                if (err) return void toast.error(`Projectes: ${err}`)
+                const funderErr = allocationError(funderAlloc, "max")
+                if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
                 setOpen(false)
                 setScopeOpen(true)
               }}

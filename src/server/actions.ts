@@ -11,8 +11,10 @@ import {
   clients,
   costCategories,
   invoiceCategories,
+  invoiceFunders,
   invoiceProjects,
   payrollEntries,
+  payrollEntryFunders,
   payrollEntryProjectCategories,
   payrollEntryProjects,
   payrolls,
@@ -85,20 +87,19 @@ const pct = z.coerce.number().gt(0, "El percentatge ha de ser més gran que 0").
 const costTypeSchema = z.enum(["direct", "indirect"])
 const categoryIdsSchema = z.array(z.string().uuid()).default([])
 const optionalActivityId = z.string().uuid().nullable().optional()
-const optionalFunderId = z
+const funderIdSchema = z
   .string()
-  .nullable()
-  .optional()
-  .refine((v) => v == null || parseFunderKey(v) != null, "Finançador no vàlid")
-const allocationSchema = z.array(
+  .refine((v) => parseFunderKey(v) != null, "Finançador no vàlid")
+
+/** Assignació a projectes (factures). */
+const projectAllocationSchema = z.array(
   z.object({
     id: z.string().uuid(),
     percentage: pct,
     activityId: optionalActivityId,
-    funderId: optionalFunderId,
   })
 )
-/** Assignació a projecte amb tipus de cost, categories, activitat i finançador (nòmines). */
+/** Assignació a projectes amb tipus de cost i categories (nòmines). */
 const payrollAllocationSchema = z.array(
   z.object({
     id: z.string().uuid(),
@@ -106,11 +107,21 @@ const payrollAllocationSchema = z.array(
     costType: costTypeSchema.default("direct"),
     categoryIds: categoryIdsSchema,
     activityId: optionalActivityId,
-    funderId: optionalFunderId,
   })
 )
-type Allocation = z.infer<typeof allocationSchema>[number]
+/** Assignació explícita a finançadors (suma ≤ 100 %). */
+const funderAllocationSchema = z.array(
+  z.object({
+    id: funderIdSchema,
+    percentage: pct,
+  })
+)
+/** @deprecated Alias: abans incloïa funderId a la fila de projecte. */
+const allocationSchema = projectAllocationSchema
+
+type ProjectAllocation = z.infer<typeof projectAllocationSchema>[number]
 type PayrollAllocation = z.infer<typeof payrollAllocationSchema>[number]
+type FunderAllocation = z.infer<typeof funderAllocationSchema>[number]
 
 /** Valida que l'activitat (si n'hi ha) pertanyi al projecte. */
 async function resolveActivityId(
@@ -127,56 +138,21 @@ async function resolveActivityId(
   return row.id
 }
 
-/** Valida que el finançador (si n'hi ha) sigui del projecte. */
-async function resolveFunder(
-  projectId: string,
-  funderId: string | null | undefined
-): Promise<{ clientId: string | null; subsidyId: string | null } | undefined> {
-  if (funderId === undefined) return undefined
-  if (funderId === null || funderId === "") return { clientId: null, subsidyId: null }
-  const cols = funderColumns(funderId)
-  if (cols.clientId) {
-    const row = await db.query.projectClients.findFirst({
-      where: and(eq(projectClients.projectId, projectId), eq(projectClients.clientId, cols.clientId)),
-      columns: { clientId: true },
-    })
-    if (!row) throw new Error("El finançador no finança aquest projecte")
-  } else if (cols.subsidyId) {
-    const row = await db.query.projectSubsidies.findFirst({
-      where: and(
-        eq(projectSubsidies.projectId, projectId),
-        eq(projectSubsidies.subsidyId, cols.subsidyId)
-      ),
-      columns: { subsidyId: true },
-    })
-    if (!row) throw new Error("La subvenció no finança aquest projecte")
-  }
-  return cols
-}
-
-type ResolvedInvoiceAlloc = {
+type ResolvedProjectAlloc = {
   projectId: string
   percentage: number
   activityId: string | null
-  clientId: string | null
-  subsidyId: string | null
 }
 
-async function resolveInvoiceAllocations(list: Allocation[]): Promise<ResolvedInvoiceAlloc[]> {
+async function resolveInvoiceProjectAllocations(
+  list: ProjectAllocation[]
+): Promise<ResolvedProjectAlloc[]> {
   return Promise.all(
-    list.map(async (a) => {
-      const activityId = (await resolveActivityId(a.id, a.activityId ?? null)) ?? null
-      const funder = (await resolveFunder(a.id, a.funderId ?? null)) ?? {
-        clientId: null,
-        subsidyId: null,
-      }
-      return {
-        projectId: a.id,
-        percentage: a.percentage,
-        activityId,
-        ...funder,
-      }
-    })
+    list.map(async (a) => ({
+      projectId: a.id,
+      percentage: a.percentage,
+      activityId: (await resolveActivityId(a.id, a.activityId ?? null)) ?? null,
+    }))
   )
 }
 
@@ -186,28 +162,88 @@ type ResolvedPayrollAlloc = {
   costType: CostType
   categoryIds: string[]
   activityId: string | null
-  clientId: string | null
-  subsidyId: string | null
 }
 
-/** Resol activitat i finançador de cada assignació de nòmina. */
 async function resolvePayrollAllocations(list: PayrollAllocation[]): Promise<ResolvedPayrollAlloc[]> {
   return Promise.all(
-    list.map(async (a) => {
-      const activityId = (await resolveActivityId(a.id, a.activityId ?? null)) ?? null
-      const funder = (await resolveFunder(a.id, a.funderId ?? null)) ?? {
-        clientId: null,
-        subsidyId: null,
-      }
-      return {
-        projectId: a.id,
-        percentage: a.percentage,
-        costType: a.costType,
-        categoryIds: a.categoryIds,
-        activityId,
-        ...funder,
-      }
-    })
+    list.map(async (a) => ({
+      projectId: a.id,
+      percentage: a.percentage,
+      costType: a.costType,
+      categoryIds: a.categoryIds,
+      activityId: (await resolveActivityId(a.id, a.activityId ?? null)) ?? null,
+    }))
+  )
+}
+
+type ResolvedFunderAlloc = {
+  clientId: string | null
+  subsidyId: string | null
+  percentage: number
+}
+
+/** Valida que cada finançador finança algun dels projectes assignats. */
+async function resolveFunderAllocations(
+  list: FunderAllocation[],
+  projectIds: string[]
+): Promise<ResolvedFunderAlloc[]> {
+  if (!list.length) return []
+  if (!projectIds.length) {
+    throw new Error("Cal assignar projectes abans d'assignar finançadors")
+  }
+  const uniqueProjects = [...new Set(projectIds)]
+  const [clientRows, subsidyRows] = await Promise.all([
+    db
+      .select({ clientId: projectClients.clientId })
+      .from(projectClients)
+      .where(inArray(projectClients.projectId, uniqueProjects)),
+    db
+      .select({ subsidyId: projectSubsidies.subsidyId })
+      .from(projectSubsidies)
+      .where(inArray(projectSubsidies.projectId, uniqueProjects)),
+  ])
+  const allowedClients = new Set(clientRows.map((r) => r.clientId))
+  const allowedSubsidies = new Set(subsidyRows.map((r) => r.subsidyId))
+
+  return list.map((a) => {
+    const cols = funderColumns(a.id)
+    if (cols.clientId && !allowedClients.has(cols.clientId)) {
+      throw new Error("El finançador no finança cap dels projectes assignats")
+    }
+    if (cols.subsidyId && !allowedSubsidies.has(cols.subsidyId)) {
+      throw new Error("La subvenció no finança cap dels projectes assignats")
+    }
+    return { ...cols, percentage: a.percentage }
+  })
+}
+
+async function replaceInvoiceFunders(invoiceId: string, rows: ResolvedFunderAlloc[]) {
+  await db.delete(invoiceFunders).where(eq(invoiceFunders.invoiceId, invoiceId))
+  if (rows.length) {
+    await db.insert(invoiceFunders).values(
+      rows.map((r) => ({
+        invoiceId,
+        percentage: r.percentage,
+        clientId: r.clientId,
+        subsidyId: r.subsidyId,
+      }))
+    )
+  }
+}
+
+async function replacePayrollEntryFunders(entryIds: string[], rows: ResolvedFunderAlloc[]) {
+  if (!entryIds.length) return
+  await db.delete(payrollEntryFunders).where(inArray(payrollEntryFunders.entryId, entryIds))
+  if (!rows.length) return
+  await db.insert(payrollEntryFunders).values(
+    entryIds.flatMap((entryId) =>
+      rows.map((r) => ({
+        entryId,
+        percentage: r.percentage,
+        clientId: r.clientId,
+        subsidyId: r.subsidyId,
+      }))
+    )
   )
 }
 
@@ -247,8 +283,6 @@ async function insertPayrollAllocations(
     percentage: number
     costType: CostType
     activityId: string | null
-    clientId: string | null
-    subsidyId: string | null
     categoryIds: string[]
   }[]
 ) {
@@ -262,8 +296,6 @@ async function insertPayrollAllocations(
         percentage: r.percentage,
         costType: r.costType,
         activityId: r.activityId,
-        clientId: r.clientId,
-        subsidyId: r.subsidyId,
       }))
     )
     .returning({ id: payrollEntryProjects.id })
@@ -861,18 +893,13 @@ export async function assignInvoiceToProject(
   projectId: string,
   invoiceId: string,
   percentage: number,
-  activityId?: string | null,
-  funderId?: string | null
+  activityId?: string | null
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
-    const activity = (await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
-    const funder =
-      (await resolveFunder(projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
-        clientId: null,
-        subsidyId: null,
-      }
+    const activity =
+      (await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
     const [row] = await db
       .insert(invoiceProjects)
       .values({
@@ -880,8 +907,6 @@ export async function assignInvoiceToProject(
         projectId,
         percentage: p,
         activityId: activity,
-        clientId: funder.clientId,
-        subsidyId: funder.subsidyId,
       })
       .returning({ id: invoiceProjects.id })
     revalidatePath(`/projectes/${projectId}`)
@@ -921,36 +946,34 @@ export async function setInvoiceProjectActivity(
   }
 }
 
-/** Canvia (o treu) el finançador d'una assignació de factura. */
-export async function setInvoiceProjectFunder(
-  allocationId: string,
-  funderId: string | null
+/** Reescriu l'assignació a finançadors d'una factura (suma ≤ 100 %). */
+export async function setInvoiceFunders(
+  invoiceId: string,
+  input: { id: string; percentage: number }[]
 ): Promise<ActionResult> {
   const session = await requireSession()
   try {
-    const row = await db.query.invoiceProjects.findFirst({
-      where: eq(invoiceProjects.id, allocationId),
-      columns: { id: true, projectId: true, invoiceId: true },
-    })
-    if (!row) throw new Error("Assignació no trobada")
+    const list = funderAllocationSchema.parse(input)
+    checkAllocations(list, "max")
+    const projects = await db
+      .select({ projectId: invoiceProjects.projectId })
+      .from(invoiceProjects)
+      .where(eq(invoiceProjects.invoiceId, invoiceId))
+    const resolved = await resolveFunderAllocations(
+      list,
+      projects.map((p) => p.projectId)
+    )
     await recordRevision({
       entityType: "invoice",
-      entityId: row.invoiceId,
+      entityId: invoiceId,
       action: "replace_relations",
-      summary: "Canvi de finançador d'una assignació de factura",
+      summary: "Reescriptura d'assignació a finançadors de factura",
       actorUserId: session.user.id,
     })
-    const funder =
-      (await resolveFunder(row.projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
-        clientId: null,
-        subsidyId: null,
-      }
-    await db
-      .update(invoiceProjects)
-      .set({ clientId: funder.clientId, subsidyId: funder.subsidyId })
-      .where(eq(invoiceProjects.id, allocationId))
-    revalidatePath(`/projectes/${row.projectId}`)
+    await replaceInvoiceFunders(invoiceId, resolved)
     revalidatePath("/factures")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true }
   } catch (e) {
     return fail(e)
@@ -1013,20 +1036,15 @@ export async function assignPayrollToProject(
   percentage: number,
   costType: CostType = "direct",
   categoryIds: string[] = [],
-  activityId?: string | null,
-  funderId?: string | null
+  activityId?: string | null
 ): Promise<ActionResult<{ count: number }>> {
   await requireSession()
   try {
     const p = pct.parse(percentage)
     const kind = costTypeSchema.parse(costType)
     const cats = categoryIdsSchema.parse(categoryIds)
-    const activity = (await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
-    const funder =
-      (await resolveFunder(projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
-        clientId: null,
-        subsidyId: null,
-      }
+    const activity =
+      (await resolveActivityId(projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
     const months = monthRange(fromMonth, toMonthValue)
     if (!months.length) throw new Error("El rang de mesos no és vàlid")
 
@@ -1082,8 +1100,6 @@ export async function assignPayrollToProject(
         percentage: p,
         costType: kind,
         activityId: activity,
-        clientId: funder.clientId,
-        subsidyId: funder.subsidyId,
         categoryIds: cats,
       }))
     )
@@ -1174,36 +1190,35 @@ export async function setPayrollEntryProjectActivity(
   }
 }
 
-/** Canvia (o treu) el finançador d'una assignació de nòmina. */
-export async function setPayrollEntryProjectFunder(
-  allocationId: string,
-  funderId: string | null
+/** Reescriu l'assignació a finançadors d'una o més entrades de nòmina (suma ≤ 100 %). */
+export async function setPayrollEntryFunders(
+  entryIds: string[],
+  input: { id: string; percentage: number }[]
 ): Promise<ActionResult> {
   const session = await requireSession()
   try {
-    const row = await db.query.payrollEntryProjects.findFirst({
-      where: eq(payrollEntryProjects.id, allocationId),
-      columns: { id: true, projectId: true, entryId: true },
-    })
-    if (!row) throw new Error("Assignació no trobada")
-    await recordRevision({
+    const ids = z.array(z.string().uuid()).min(1).parse(entryIds)
+    const list = funderAllocationSchema.parse(input)
+    checkAllocations(list, "max")
+    const projects = await db
+      .select({ projectId: payrollEntryProjects.projectId })
+      .from(payrollEntryProjects)
+      .where(inArray(payrollEntryProjects.entryId, ids))
+    const resolved = await resolveFunderAllocations(
+      list,
+      projects.map((p) => p.projectId)
+    )
+    await recordRevisionsForIds({
       entityType: "payroll_entry",
-      entityId: row.entryId,
+      entityIds: ids,
       action: "replace_relations",
-      summary: "Canvi de finançador d'una assignació de nòmina",
+      summary: "Reescriptura d'assignació a finançadors de nòmina",
       actorUserId: session.user.id,
     })
-    const funder =
-      (await resolveFunder(row.projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
-        clientId: null,
-        subsidyId: null,
-      }
-    await db
-      .update(payrollEntryProjects)
-      .set({ clientId: funder.clientId, subsidyId: funder.subsidyId })
-      .where(eq(payrollEntryProjects.id, allocationId))
-    revalidatePath(`/projectes/${row.projectId}`)
+    await replacePayrollEntryFunders(ids, resolved)
     revalidatePath("/nomines", "layout")
+    revalidatePath("/projectes", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true }
   } catch (e) {
     return fail(e)
@@ -1302,18 +1317,27 @@ export async function saveInvoice(
     id: string
     percentage: number
     activityId?: string | null
-    funderId?: string | null
   }[],
-  options?: { createSupplier?: boolean; categoryIds?: string[] }
+  options?: {
+    createSupplier?: boolean
+    categoryIds?: string[]
+    funderAllocations?: { id: string; percentage: number }[]
+  }
 ): Promise<ActionResult<{ id: string; supplierId: string | null }>> {
   const session = await requireSession()
   try {
     const parsed = invoiceSchema.parse(input)
     const { file, ...data } = parsed
-    const list = allocationSchema.parse(allocations)
+    const list = projectAllocationSchema.parse(allocations)
     checkAllocations(list, "max", { allowDuplicateIds: true, allowOver100: true })
+    const funderList = funderAllocationSchema.parse(options?.funderAllocations ?? [])
+    checkAllocations(funderList, "max")
     const categoryIds = categoryIdsSchema.parse(options?.categoryIds ?? [])
-    const resolved = await resolveInvoiceAllocations(list)
+    const resolved = await resolveInvoiceProjectAllocations(list)
+    const resolvedFunders = await resolveFunderAllocations(
+      funderList,
+      resolved.map((a) => a.projectId)
+    )
 
     // Crear el proveïdor a partir de les dades de la factura, si es demana
     if (!data.supplierId && options?.createSupplier) {
@@ -1374,13 +1398,12 @@ export async function saveInvoice(
             projectId: a.projectId,
             percentage: a.percentage,
             activityId: a.activityId,
-            clientId: a.clientId,
-            subsidyId: a.subsidyId,
           }))
         ),
       ])
     else await clearAlloc
 
+    await replaceInvoiceFunders(invoiceId!, resolvedFunders)
     await replaceInvoiceCategories(invoiceId!, categoryIds)
 
     if (prev?.filePathname && prev.filePathname !== values.filePathname) {
@@ -1438,7 +1461,8 @@ const bulkInvoiceSupplierSchema = z.object({
 const bulkInvoicePatchSchema = z
   .object({
     supplier: bulkInvoiceSupplierSchema.optional(),
-    allocations: allocationSchema.optional(),
+    allocations: projectAllocationSchema.optional(),
+    funderAllocations: funderAllocationSchema.optional(),
     vatRate: z.coerce.number().min(0).max(100).optional(),
     vatDeductibleRate: z.coerce.number().min(0).max(100).optional(),
     irpfRate: z.coerce.number().min(0).max(100).optional(),
@@ -1449,6 +1473,7 @@ const bulkInvoicePatchSchema = z
     (p) =>
       p.supplier !== undefined ||
       p.allocations !== undefined ||
+      p.funderAllocations !== undefined ||
       p.vatRate !== undefined ||
       p.vatDeductibleRate !== undefined ||
       p.irpfRate !== undefined ||
@@ -1469,8 +1494,13 @@ export async function bulkUpdateInvoices(
     const data = bulkInvoicePatchSchema.parse(patch)
     if (data.allocations)
       checkAllocations(data.allocations, "max", { allowDuplicateIds: true, allowOver100: true })
+    if (data.funderAllocations) checkAllocations(data.funderAllocations, "max")
 
-    if (data.allocations !== undefined || data.categoryIds !== undefined) {
+    if (
+      data.allocations !== undefined ||
+      data.funderAllocations !== undefined ||
+      data.categoryIds !== undefined
+    ) {
       await recordRevisionsForIds({
         entityType: "invoice",
         entityIds: invoiceIds,
@@ -1547,7 +1577,7 @@ export async function bulkUpdateInvoices(
     }
 
     if (data.allocations) {
-      const resolved = await resolveInvoiceAllocations(data.allocations)
+      const resolved = await resolveInvoiceProjectAllocations(data.allocations)
       const clear = db.delete(invoiceProjects).where(inArray(invoiceProjects.invoiceId, invoiceIds))
       if (resolved.length) {
         await db.batch([
@@ -1559,14 +1589,40 @@ export async function bulkUpdateInvoices(
                 projectId: a.projectId,
                 percentage: a.percentage,
                 activityId: a.activityId,
-                clientId: a.clientId,
-                subsidyId: a.subsidyId,
               }))
             )
           ),
         ])
       } else {
         await clear
+      }
+    }
+
+    if (data.funderAllocations !== undefined) {
+      const projectIdsByInvoice = new Map<string, string[]>()
+      if (data.allocations) {
+        const ids = data.allocations.map((a) => a.id)
+        for (const invoiceId of invoiceIds) projectIdsByInvoice.set(invoiceId, ids)
+      } else {
+        const rows = await db
+          .select({
+            invoiceId: invoiceProjects.invoiceId,
+            projectId: invoiceProjects.projectId,
+          })
+          .from(invoiceProjects)
+          .where(inArray(invoiceProjects.invoiceId, invoiceIds))
+        for (const r of rows) {
+          const list = projectIdsByInvoice.get(r.invoiceId) ?? []
+          list.push(r.projectId)
+          projectIdsByInvoice.set(r.invoiceId, list)
+        }
+      }
+      for (const invoiceId of invoiceIds) {
+        const resolved = await resolveFunderAllocations(
+          data.funderAllocations,
+          projectIdsByInvoice.get(invoiceId) ?? []
+        )
+        await replaceInvoiceFunders(invoiceId, resolved)
       }
     }
 
@@ -1639,8 +1695,8 @@ export async function createPayroll(
     costType?: CostType
     categoryIds?: string[]
     activityId?: string | null
-    funderId?: string | null
-  }[]
+  }[],
+  funderAllocations: { id: string; percentage: number }[] = []
 ): Promise<ActionResult<{ id: string }>> {
   await requireSession()
   try {
@@ -1650,6 +1706,12 @@ export async function createPayroll(
       list.map((a) => ({ id: a.projectId, percentage: a.percentage })),
       "max",
       { allowDuplicateIds: true, allowOver100: true }
+    )
+    const funderList = funderAllocationSchema.parse(funderAllocations)
+    checkAllocations(funderList, "max")
+    const resolvedFunders = await resolveFunderAllocations(
+      funderList,
+      list.map((a) => a.projectId)
     )
     const [{ id }] = await db.insert(payrolls).values(data).returning({ id: payrolls.id })
 
@@ -1669,11 +1731,15 @@ export async function createPayroll(
             percentage: a.percentage,
             costType: a.costType,
             activityId: a.activityId,
-            clientId: a.clientId,
-            subsidyId: a.subsidyId,
             categoryIds: a.categoryIds,
           }))
         )
+      )
+    }
+    if (resolvedFunders.length && entries.length) {
+      await replacePayrollEntryFunders(
+        entries.map((e) => e.id),
+        resolvedFunders
       )
     }
 
@@ -1771,8 +1837,8 @@ export async function setPayrollEntryProjects(
     costType?: CostType
     categoryIds?: string[]
     activityId?: string | null
-    funderId?: string | null
-  }[]
+  }[],
+  funderAllocations?: { id: string; percentage: number }[]
 ): Promise<ActionResult<{ count: number }>> {
   const session = await requireSession()
   try {
@@ -1782,6 +1848,15 @@ export async function setPayrollEntryProjects(
       "max",
       { allowDuplicateIds: true, allowOver100: true }
     )
+    const funderList =
+      funderAllocations !== undefined ? funderAllocationSchema.parse(funderAllocations) : null
+    if (funderList) checkAllocations(funderList, "max")
+    const resolvedFunders = funderList
+      ? await resolveFunderAllocations(
+          funderList,
+          list.map((a) => a.projectId)
+        )
+      : null
     const ref = toMonth(referenceMonth)
     const where =
       scope === "current"
@@ -1810,13 +1885,12 @@ export async function setPayrollEntryProjects(
             percentage: a.percentage,
             costType: a.costType,
             activityId: a.activityId,
-            clientId: a.clientId,
-            subsidyId: a.subsidyId,
             categoryIds: a.categoryIds,
           }))
         )
       )
     }
+    if (resolvedFunders) await replacePayrollEntryFunders(ids, resolvedFunders)
 
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
@@ -1861,12 +1935,24 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
             percentage: a.percentage,
             costType: a.costType,
             activityId: a.activityId,
-            clientId: a.clientId,
-            subsidyId: a.subsidyId,
             categoryIds: a.categories.map((c) => c.categoryId),
           }))
         )
       )
+      const lastFunders = await db
+        .select({
+          clientId: payrollEntryFunders.clientId,
+          subsidyId: payrollEntryFunders.subsidyId,
+          percentage: payrollEntryFunders.percentage,
+        })
+        .from(payrollEntryFunders)
+        .where(eq(payrollEntryFunders.entryId, last.id))
+      if (lastFunders.length) {
+        await replacePayrollEntryFunders(
+          created.map((e) => e.id),
+          lastFunders
+        )
+      }
     }
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
@@ -1898,10 +1984,17 @@ const bulkPayrollEntryPatchSchema = z
   .object({
     amount: money.min(0).optional(),
     allocations: payrollAllocationSchema.optional(),
+    funderAllocations: funderAllocationSchema.optional(),
   })
-  .refine((p) => p.amount !== undefined || p.allocations !== undefined, {
-    message: "Indica què vols canviar",
-  })
+  .refine(
+    (p) =>
+      p.amount !== undefined ||
+      p.allocations !== undefined ||
+      p.funderAllocations !== undefined,
+    {
+      message: "Indica què vols canviar",
+    }
+  )
 export type BulkPayrollEntryPatch = z.input<typeof bulkPayrollEntryPatchSchema>
 
 /** Actualitza quantitat i/o assignació de diversos registres mensuals d'una nòmina */
@@ -1916,6 +2009,7 @@ export async function bulkUpdatePayrollEntries(
     const data = bulkPayrollEntryPatchSchema.parse(patch)
     if (data.allocations)
       checkAllocations(data.allocations, "max", { allowDuplicateIds: true, allowOver100: true })
+    if (data.funderAllocations) checkAllocations(data.funderAllocations, "max")
 
     const owned = await db
       .select({ id: payrollEntries.id })
@@ -1924,7 +2018,7 @@ export async function bulkUpdatePayrollEntries(
     if (owned.length !== ids.length) throw new Error("Algun registre no pertany a aquesta nòmina")
     const ownedIds = owned.map((e) => e.id)
 
-    if (data.allocations) {
+    if (data.allocations || data.funderAllocations) {
       await recordRevisionsForIds({
         entityType: "payroll_entry",
         entityIds: ownedIds,
@@ -1953,13 +2047,26 @@ export async function bulkUpdatePayrollEntries(
               percentage: a.percentage,
               costType: a.costType,
               activityId: a.activityId,
-              clientId: a.clientId,
-              subsidyId: a.subsidyId,
               categoryIds: a.categoryIds,
             }))
           )
         )
       }
+    }
+
+    if (data.funderAllocations !== undefined) {
+      let projectIds: string[]
+      if (data.allocations) {
+        projectIds = data.allocations.map((a) => a.id)
+      } else {
+        const rows = await db
+          .select({ projectId: payrollEntryProjects.projectId })
+          .from(payrollEntryProjects)
+          .where(inArray(payrollEntryProjects.entryId, ownedIds))
+        projectIds = rows.map((r) => r.projectId)
+      }
+      const resolved = await resolveFunderAllocations(data.funderAllocations, projectIds)
+      await replacePayrollEntryFunders(ownedIds, resolved)
     }
 
     revalidatePath(`/nomines/${payrollId}`)

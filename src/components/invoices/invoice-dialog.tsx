@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea"
 import type { SupplierInvoice } from "@/db/schema"
 import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
 import { formatEuro } from "@/lib/format"
+import { unionFundersFromProjects } from "@/lib/funders"
 import {
   computeInvoice,
   deductibleVatAmount,
@@ -95,6 +96,7 @@ const allowedRate = (list: number[], v: number | undefined, fallback: number) =>
 export function InvoiceDialog({
   invoice,
   allocations,
+  funderAllocations,
   categoryIds: initialCategoryIds,
   categories: initialCategories = [],
   projectOptions,
@@ -109,12 +111,13 @@ export function InvoiceDialog({
 }: {
   invoice?: SupplierInvoice
   allocations?: AllocationRow[]
+  funderAllocations?: AllocationRow[]
   categoryIds?: string[]
   categories?: CategoryRef[]
   projectOptions: { id: string; name: string; hint?: string }[]
   /** Activitats agrupades per projecte (selector al costat de cada projecte). */
   activitiesByProject?: Record<string, { id: string; name: string }[]>
-  /** Finançadors agrupats per projecte (selector opcional per fila). */
+  /** Finançadors agrupats per projecte (opcions de la capa de finançadors). */
   fundersByProject?: Record<string, { id: string; name: string }[]>
   suppliers: SupplierOption[]
   /** Proveïdor preseleccionat en crear una factura (p. ex. des de la fitxa del proveïdor) */
@@ -131,11 +134,12 @@ export function InvoiceDialog({
   const [pending, start] = useTransition()
   const [extracting, setExtracting] = useState(false)
   const [alloc, setAlloc] = useState<AllocationRow[]>([])
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([])
   const [categoryIds, setCategoryIds] = useState<string[]>([])
   const [catalog, setCatalog] = useState<CategoryRef[]>(initialCategories)
   const [supplierId, setSupplierId] = useState<string>(NONE)
   const [fiscal, setFiscal] = useState<Fiscal>(EMPTY)
-  const [createSupplier, setCreateSupplier] = useState(false)
+  const [createSupplier, setCreateSupplier] = useState(!invoice)
   const [number, setNumber] = useState("")
   const [issueDate, setIssueDate] = useState(todayISO())
   const [description, setDescription] = useState("")
@@ -158,12 +162,17 @@ export function InvoiceDialog({
     vatDeductibleRate: deductibleRate,
   })
   const linked = supplierId !== NONE ? suppliers.find((s) => s.id === supplierId) : undefined
+  const funderOptions = unionFundersFromProjects(
+    alloc.map((a) => a.id),
+    fundersByProject
+  )
 
   function reset() {
     setAlloc(allocations ?? [])
+    setFunderAlloc(funderAllocations ?? [])
     setCategoryIds(initialCategoryIds ?? [])
     setCatalog(initialCategories)
-    setCreateSupplier(false)
+    setCreateSupplier(!invoice)
     setBase(invoice?.baseAmount ?? NaN)
     setNumber(invoice?.number ?? "")
     setIssueDate(invoice?.issueDate ?? todayISO())
@@ -298,6 +307,8 @@ export function InvoiceDialog({
     e.preventDefault()
     const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
     if (err) return void toast.error(`Projectes: ${err}`)
+    const funderErr = allocationError(funderAlloc, "max")
+    if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
     start(async () => {
       const res = await saveInvoice(
         invoice?.id ?? null,
@@ -315,7 +326,11 @@ export function InvoiceDialog({
           file,
         } as never,
         alloc,
-        { createSupplier: !linked && createSupplier, categoryIds }
+        {
+          createSupplier: !linked && createSupplier,
+          categoryIds,
+          funderAllocations: funderAlloc,
+        }
       )
       if (!res.ok) return void toast.error(res.error)
       toast.success(
@@ -590,8 +605,8 @@ export function InvoiceDialog({
             <FieldSet>
               <FieldLegend>Projectes</FieldLegend>
               <FieldDescription>
-                Percentatge del cost imputat a cada projecte i, opcionalment, l&apos;activitat
-                i el finançador. Pot superar el 100 % o quedar-ne sense assignar.
+                Percentatge del cost imputat a cada projecte i, opcionalment, l&apos;activitat.
+                Pot superar el 100 % o quedar-ne sense assignar.
               </FieldDescription>
               <AllocationEditor
                 value={alloc}
@@ -601,9 +616,25 @@ export function InvoiceDialog({
                 itemLabel="projecte"
                 emptyText="Factura sense assignar a cap projecte"
                 activitiesByProject={activitiesByProject}
-                fundersByProject={fundersByProject}
                 allowDuplicateIds
                 allowOver100
+              />
+            </FieldSet>
+
+            <FieldSet>
+              <FieldLegend>Finançadors</FieldLegend>
+              <FieldDescription>
+                Capa opcional de finançadors explícits. El residual es reparteix segons el mix
+                dels projectes assignats.
+              </FieldDescription>
+              <AllocationEditor
+                value={funderAlloc}
+                onChange={setFunderAlloc}
+                options={funderOptions}
+                mode="max"
+                itemLabel="finançador"
+                emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                funderOptions
               />
             </FieldSet>
           </FieldGroup>

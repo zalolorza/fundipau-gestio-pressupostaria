@@ -23,10 +23,10 @@ import {
   saveProject,
   saveSubsidy,
   saveSupplier,
+  setInvoiceFunders,
   setInvoiceProjectActivity,
-  setInvoiceProjectFunder,
+  setPayrollEntryFunders,
   setPayrollEntryProjectActivity,
-  setPayrollEntryProjectFunder,
   setPayrollEntryProjects,
   setProjectFunders,
   setSubsidyClients,
@@ -73,8 +73,11 @@ const funderKeySchema = z
   .string()
   .regex(/^(client|subsidy):[0-9a-f-]{36}$/i)
   .describe("client:uuid o subsidy:uuid")
-/** Opcional a les assignacions; null/omès = % del projecte. */
-const funderId = funderKeySchema.nullable().optional()
+const funderAllocationItem = z.object({
+  id: funderKeySchema,
+  percentage: z.number().gt(0).lte(100),
+})
+const funderAllocationsSchema = z.array(funderAllocationItem).default([])
 
 function matchQ(hay: string | null | undefined, q?: string) {
   if (!q?.trim()) return true
@@ -172,8 +175,7 @@ export function createAgentTools() {
                 imputed: i.imputed,
                 activityId: i.activityId,
                 activityName: i.activityName,
-                funderId: i.funderId,
-                funderName: i.funderName,
+                funderAllocations: i.funderAllocations,
                 categories: i.categories,
               })),
               25
@@ -194,8 +196,7 @@ export function createAgentTools() {
                   costType: e.costType,
                   activityId: e.activityId,
                   activityName: e.activityName,
-                  funderId: e.funderId,
-                  funderName: e.funderName,
+                  funderAllocations: e.funderAllocations,
                 })),
                 24
               ),
@@ -289,7 +290,7 @@ export function createAgentTools() {
 
     getSubsidyBilling: tool({
       description:
-        "Costos imputats a una subvenció (sense filtre temporal): factures i nòmines dels projectes × % de la subvenció (o 100 % si el finançador de la fila és aquesta subvenció). El total és el progrés d'assignacions respecte al total de la subvenció.",
+        "Costos imputats a una subvenció (sense filtre temporal): factures i nòmines segons funderAllocations explícits + residu (mix dels projectes). El total és el progrés d'imputació respecte al total de la subvenció.",
       inputSchema: z.object({ subsidyId: uuid }),
       execute: async ({ subsidyId }) => getSubsidyBilling(subsidyId),
     }),
@@ -392,6 +393,7 @@ export function createAgentTools() {
             costType: r.costType,
             assigned: r.assigned,
             allocations: r.allocations,
+            funderAllocations: r.funderAllocations,
             categories: r.categories,
           })),
           limit
@@ -402,13 +404,14 @@ export function createAgentTools() {
 
     getInvoice: tool({
       description:
-        "Detall d'una factura per id (inclosos allocationId i finançador de cada assignació).",
+        "Detall d'una factura per id (assignacions a projectes amb allocationId + funderAllocations).",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const r = await db.query.supplierInvoices.findFirst({
           where: eq(supplierInvoices.id, id),
           with: {
             projects: { with: { project: { columns: { id: true, name: true } } } },
+            funders: true,
             categories: { with: { category: { columns: { id: true, name: true } } } },
           },
         })
@@ -442,8 +445,13 @@ export function createAgentTools() {
               name: p.project.name,
               percentage: p.percentage,
               activityId: p.activityId,
-              funderId: funderKeyFromColumns(p.clientId, p.subsidyId),
             })),
+            funderAllocations: r.funders
+              .map((f) => {
+                const key = funderKeyFromColumns(f.clientId, f.subsidyId)
+                return key ? { id: key, percentage: f.percentage } : null
+              })
+              .filter((f): f is { id: string; percentage: number } => f !== null),
             categories,
             categoryIds: categories.map((c) => c.id),
           },
@@ -519,7 +527,7 @@ export function createAgentTools() {
 
     getPayroll: tool({
       description:
-        "Detall d'una nòmina amb entrades mensuals i assignacions (allocationId, funderId).",
+        "Detall d'una nòmina amb entrades mensuals: assignacions a projectes (allocationId) i funderAllocations.",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const p = await getPayroll(id)
@@ -537,9 +545,9 @@ export function createAgentTools() {
               percentage: a.percentage,
               costType: a.costType,
               activityId: a.activityId,
-              funderId: a.funderId,
               categoryIds: a.categoryIds,
             })),
+            funderAllocations: e.funderAllocations,
           })),
           36
         )
@@ -744,7 +752,7 @@ export function createAgentTools() {
 
     saveInvoice: tool({
       description:
-        "Crea o actualitza una factura. Passa file amb pathname del Blob si n'hi ha d'adjunt. allocations: files projecte+% (mateix projecte permès; suma pot >100). id=null per crear.",
+        "Crea o actualitza una factura. Passa file amb pathname del Blob si n'hi ha d'adjunt. allocations: files projecte+% (mateix projecte permès; suma pot >100). funderAllocations: capa de finançadors (suma ≤100). id=null per crear.",
       inputSchema: z.object({
         id: uuid.nullable(),
         number: z.string().min(1),
@@ -763,6 +771,7 @@ export function createAgentTools() {
         costType: costType,
         createSupplier: z.boolean().optional(),
         categoryIds: z.array(uuid).optional(),
+        funderAllocations: funderAllocationsSchema,
         file: z
           .object({
             filePathname: z.string().min(1),
@@ -776,7 +785,6 @@ export function createAgentTools() {
               id: uuid.describe("projectId"),
               percentage: z.number().gt(0).lte(100),
               activityId: uuid.nullable().optional(),
-              funderId,
             })
           )
           .default([]),
@@ -785,6 +793,7 @@ export function createAgentTools() {
         id,
         createSupplier,
         categoryIds,
+        funderAllocations,
         file,
         allocations,
         ...input
@@ -792,26 +801,25 @@ export function createAgentTools() {
         saveInvoice(id, { ...input, file: file ?? null }, allocations, {
           createSupplier,
           categoryIds,
+          funderAllocations,
         }),
     }),
 
     assignInvoiceToProject: tool({
       description:
-        "Afegeix una assignació d'una factura a un projecte (no substitueix; la suma pot superar 100 %). Retorna allocationId.",
+        "Afegeix una assignació d'una factura a un projecte (només capa de projecte; no toca finançadors). No substitueix; la suma pot superar 100 %. Retorna allocationId.",
       inputSchema: z.object({
         projectId: uuid,
         invoiceId: uuid,
         percentage: z.number().gt(0).lte(100),
         activityId: uuid.nullable().optional(),
-        funderId,
       }),
       execute: async (args) =>
         assignInvoiceToProject(
           args.projectId,
           args.invoiceId,
           args.percentage,
-          args.activityId,
-          args.funderId
+          args.activityId
         ),
     }),
 
@@ -831,20 +839,20 @@ export function createAgentTools() {
         setInvoiceProjectActivity(allocationId, activityId),
     }),
 
-    setInvoiceProjectFunder: tool({
+    setInvoiceFunders: tool({
       description:
-        "Canvia el finançador d'una assignació de factura (client:uuid / subsidy:uuid; null = % del projecte).",
+        "Reescriu la capa de finançadors d'una factura (client:uuid / subsidy:uuid; suma ≤100 %). El residu segueix el mix dels projectes assignats. Cada finançador ha d'existir en algun projecte assignat.",
       inputSchema: z.object({
-        allocationId: uuid,
-        funderId: funderKeySchema.nullable(),
+        invoiceId: uuid,
+        funderAllocations: funderAllocationsSchema,
       }),
-      execute: async ({ allocationId, funderId: key }) =>
-        setInvoiceProjectFunder(allocationId, key),
+      execute: async ({ invoiceId, funderAllocations }) =>
+        setInvoiceFunders(invoiceId, funderAllocations),
     }),
 
     createPayroll: tool({
       description:
-        "Crea una nòmina amb entrades mensuals i assignacions opcionals (mateix projecte permès; suma pot >100 %).",
+        "Crea una nòmina amb entrades mensuals, assignacions a projectes opcionals (suma pot >100 %) i funderAllocations opcionals (suma ≤100 %).",
       inputSchema: z.object({
         personName: z.string().min(1),
         personTaxId: optStr,
@@ -861,12 +869,13 @@ export function createAgentTools() {
               costType: costType.optional(),
               categoryIds: z.array(uuid).optional(),
               activityId: uuid.nullable().optional(),
-              funderId,
             })
           )
           .default([]),
+        funderAllocations: funderAllocationsSchema,
       }),
-      execute: async ({ allocations, ...input }) => createPayroll(input, allocations),
+      execute: async ({ allocations, funderAllocations, ...input }) =>
+        createPayroll(input, allocations, funderAllocations),
     }),
 
     updatePayrollInfo: tool({
@@ -897,7 +906,7 @@ export function createAgentTools() {
 
     assignPayrollToProject: tool({
       description:
-        "Afegeix assignacions d'una nòmina a un projecte per a un rang de mesos (no substitueix; suma pot >100 %).",
+        "Afegeix assignacions d'una nòmina a un projecte per a un rang de mesos (només capa de projecte; no toca finançadors). No substitueix; suma pot >100 %.",
       inputSchema: z.object({
         projectId: uuid,
         payrollId: uuid,
@@ -907,7 +916,6 @@ export function createAgentTools() {
         costType: costType.optional(),
         categoryIds: z.array(uuid).optional(),
         activityId: uuid.nullable().optional(),
-        funderId,
       }),
       execute: async (a) =>
         assignPayrollToProject(
@@ -918,8 +926,7 @@ export function createAgentTools() {
           a.percentage,
           a.costType,
           a.categoryIds ?? [],
-          a.activityId,
-          a.funderId
+          a.activityId
         ),
     }),
 
@@ -941,19 +948,20 @@ export function createAgentTools() {
         setPayrollEntryProjectActivity(allocationId, activityId),
     }),
 
-    setPayrollEntryProjectFunder: tool({
-      description: "Canvia el finançador d'una assignació de nòmina (null = % del projecte).",
+    setPayrollEntryFunders: tool({
+      description:
+        "Reescriu la capa de finançadors d'una o més entrades de nòmina (suma ≤100 %). El residu segueix el mix dels projectes assignats. Cada finançador ha d'existir en algun projecte assignat.",
       inputSchema: z.object({
-        allocationId: uuid,
-        funderId: funderKeySchema.nullable(),
+        entryIds: z.array(uuid).min(1),
+        funderAllocations: funderAllocationsSchema,
       }),
-      execute: async ({ allocationId, funderId: key }) =>
-        setPayrollEntryProjectFunder(allocationId, key),
+      execute: async ({ entryIds, funderAllocations }) =>
+        setPayrollEntryFunders(entryIds, funderAllocations),
     }),
 
     setPayrollEntryProjects: tool({
       description:
-        "Substitueix les assignacions a projectes d'una nòmina per a un mes (abast current/future/all). Projectes repetibles; suma pot >100 %.",
+        "Substitueix les assignacions a projectes d'una nòmina per a un mes (abast current/future/all). Projectes repetibles; suma pot >100 %. funderAllocations opcional reescriu la capa de finançadors (suma ≤100 %).",
       inputSchema: z.object({
         payrollId: uuid,
         referenceMonth: z.string(),
@@ -965,12 +973,18 @@ export function createAgentTools() {
             costType: costType.optional(),
             categoryIds: z.array(uuid).optional(),
             activityId: uuid.nullable().optional(),
-            funderId,
           })
         ),
+        funderAllocations: z.array(funderAllocationItem).optional(),
       }),
-      execute: async ({ payrollId, referenceMonth, scope, allocations }) =>
-        setPayrollEntryProjects(payrollId, referenceMonth, scope, allocations),
+      execute: async ({ payrollId, referenceMonth, scope, allocations, funderAllocations }) =>
+        setPayrollEntryProjects(
+          payrollId,
+          referenceMonth,
+          scope,
+          allocations,
+          funderAllocations
+        ),
     }),
 
     createCategory: tool({
