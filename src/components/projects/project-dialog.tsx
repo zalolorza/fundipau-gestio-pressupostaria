@@ -96,7 +96,6 @@ export function ProjectDialog({
     ...clientOptions.map((c) => ({
       id: funderKey("client", c.id),
       name: c.name,
-      badge: "Finançador" as const,
     })),
     ...subsidyOptions.map((s) => ({
       id: funderKey("subsidy", s.id),

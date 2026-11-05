@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge"
 import { parseFunderKey } from "@/lib/funders"
 
-/** Nom del finançador amb badge «Finançador» o «Subvenció». */
+/** Nom del finançador; badge «Subvenció» només quan el finançador és una subvenció. */
 export function FunderOptionLabel({
   id,
   name,
@@ -15,8 +15,6 @@ export function FunderOptionLabel({
       <span className="truncate">{name}</span>
       {kind === "subsidy" ? (
         <Badge variant="outline">Subvenció</Badge>
-      ) : kind === "client" ? (
-        <Badge variant="outline">Finançador</Badge>
       ) : null}
     </span>
   )
