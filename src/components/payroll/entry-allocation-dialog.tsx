@@ -1,12 +1,16 @@
-"use client"
+"use client";
 
-import { useState, useTransition } from "react"
-import { toast } from "sonner"
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
-import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
-import { ScopeDialog } from "@/components/app/scope-dialog"
-import type { CategoryRef } from "@/components/categories/category-picker"
-import { Button } from "@/components/ui/button"
+import {
+  AllocationEditor,
+  allocationError,
+  type AllocationRow,
+} from "@/components/app/allocation-editor";
+import { ScopeDialog } from "@/components/app/scope-dialog";
+import type { CategoryRef } from "@/components/categories/category-picker";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -15,11 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { FieldDescription, FieldLegend, FieldSet } from "@/components/ui/field"
-import { formatMonth } from "@/lib/format"
-import { unionFundersFromProjects } from "@/lib/funders"
-import { setPayrollEntryProjects } from "@/server/actions"
+} from "@/components/ui/dialog";
+import { FieldDescription, FieldLegend, FieldSet } from "@/components/ui/field";
+import { formatMonth } from "@/lib/format";
+import { unionFundersFromProjects } from "@/lib/funders";
+import { setPayrollEntryProjects } from "@/server/actions";
 
 export function EntryAllocationDialog({
   payrollId,
@@ -34,38 +38,47 @@ export function EntryAllocationDialog({
   onOpenChange,
   children,
 }: {
-  payrollId: string
-  month: string
-  allocations: AllocationRow[]
-  funderAllocations?: AllocationRow[]
-  projectOptions: { id: string; name: string; hint?: string }[]
-  activitiesByProject?: Record<string, { id: string; name: string }[]>
-  fundersByProject?: Record<string, { id: string; name: string }[]>
-  categories?: CategoryRef[]
-  open?: boolean
-  onOpenChange?: (open: boolean) => void
-  children?: React.ReactNode
+  payrollId: string;
+  month: string;
+  allocations: AllocationRow[];
+  funderAllocations?: AllocationRow[];
+  projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject?: Record<string, { id: string; name: string }[]>;
+  fundersByProject?: Record<string, { id: string; name: string }[]>;
+  categories?: CategoryRef[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children?: React.ReactNode;
 }) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
-  const open = controlledOpen ?? uncontrolledOpen
-  const setOpen = onOpenChange ?? setUncontrolledOpen
-  const [scopeOpen, setScopeOpen] = useState(false)
-  const [alloc, setAlloc] = useState<AllocationRow[]>(allocations)
-  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>(funderAllocations)
-  const [catalog, setCatalog] = useState(initialCategories)
-  const [pending, start] = useTransition()
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = onOpenChange ?? setUncontrolledOpen;
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [alloc, setAlloc] = useState<AllocationRow[]>(allocations);
+  const [funderAlloc, setFunderAlloc] =
+    useState<AllocationRow[]>(funderAllocations);
+  const [catalog, setCatalog] = useState(initialCategories);
+  const [pending, start] = useTransition();
   const funderOptions = unionFundersFromProjects(
     alloc.map((a) => a.id),
-    fundersByProject
-  )
+    fundersByProject,
+  );
 
   function apply(scope: "current" | "future" | "all") {
     start(async () => {
-      const res = await setPayrollEntryProjects(payrollId, month, scope, alloc, funderAlloc)
-      if (!res.ok) return void toast.error(res.error)
-      toast.success(`Assignació aplicada a ${res.data?.count} ${res.data?.count === 1 ? "mes" : "mesos"}`)
-      setScopeOpen(false)
-    })
+      const res = await setPayrollEntryProjects(
+        payrollId,
+        month,
+        scope,
+        alloc,
+        funderAlloc,
+      );
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(
+        `Assignació aplicada a ${res.data?.count} ${res.data?.count === 1 ? "mes" : "mesos"}`,
+      );
+      setScopeOpen(false);
+    });
   }
 
   return (
@@ -73,11 +86,11 @@ export function EntryAllocationDialog({
       <Dialog
         open={open}
         onOpenChange={(o) => {
-          setOpen(o)
+          setOpen(o);
           if (o) {
-            setAlloc(allocations)
-            setFunderAlloc(funderAllocations)
-            setCatalog(initialCategories)
+            setAlloc(allocations);
+            setFunderAlloc(funderAllocations);
+            setCatalog(initialCategories);
           }
         }}
       >
@@ -86,8 +99,8 @@ export function EntryAllocationDialog({
           <DialogHeader>
             <DialogTitle>Projectes · {formatMonth(month)}</DialogTitle>
             <DialogDescription>
-              Percentatge de la nòmina imputat a cada projecte i, opcionalment, l&apos;activitat
-              i els finançadors.
+              Percentatge de la nòmina imputat a cada projecte i, opcionalment,
+              l&apos;activitat i els finançadors.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-6">
@@ -111,8 +124,8 @@ export function EntryAllocationDialog({
             <FieldSet>
               <FieldLegend>Finançadors</FieldLegend>
               <FieldDescription>
-                Capa opcional de finançadors explícits. El residual es reparteix segons el mix
-                dels projectes assignats.
+                Capa opcional de finançadors explícits. El residual es reparteix
+                segons el mix dels projectes assignats.
               </FieldDescription>
               <AllocationEditor
                 value={funderAlloc}
@@ -120,7 +133,7 @@ export function EntryAllocationDialog({
                 options={funderOptions}
                 mode="max"
                 itemLabel="finançador"
-                emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                emptyText="Sense finançadors explícits · la financiació es reparteix segons els finançadors assignats als projectes"
                 funderOptions
               />
             </FieldSet>
@@ -134,12 +147,13 @@ export function EntryAllocationDialog({
                 const err = allocationError(alloc, "max", {
                   allowDuplicateIds: true,
                   allowOver100: true,
-                })
-                if (err) return void toast.error(`Projectes: ${err}`)
-                const funderErr = allocationError(funderAlloc, "max")
-                if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
-                setOpen(false)
-                setScopeOpen(true)
+                });
+                if (err) return void toast.error(`Projectes: ${err}`);
+                const funderErr = allocationError(funderAlloc, "max");
+                if (funderErr)
+                  return void toast.error(`Finançadors: ${funderErr}`);
+                setOpen(false);
+                setScopeOpen(true);
               }}
             >
               Continua
@@ -156,5 +170,5 @@ export function EntryAllocationDialog({
         pending={pending}
       />
     </>
-  )
+  );
 }

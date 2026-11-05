@@ -1,16 +1,16 @@
-"use client"
+"use client";
 
-import { useState, useTransition } from "react"
-import { toast } from "sonner"
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
 import {
   AllocationEditor,
   allocationError,
   type AllocationRow,
-} from "@/components/app/allocation-editor"
-import type { CategoryRef } from "@/components/categories/category-picker"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
+} from "@/components/app/allocation-editor";
+import type { CategoryRef } from "@/components/categories/category-picker";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -18,18 +18,18 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldSet,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { formatEuro } from "@/lib/format"
-import { unionFundersFromProjects } from "@/lib/funders"
-import { bulkUpdatePayrollEntries } from "@/server/actions"
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { formatEuro } from "@/lib/format";
+import { unionFundersFromProjects } from "@/lib/funders";
+import { bulkUpdatePayrollEntries } from "@/server/actions";
 
 export function BulkEditEntriesDialog({
   open,
@@ -42,15 +42,15 @@ export function BulkEditEntriesDialog({
   categories = [],
   onDone,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  payrollId: string
-  entryIds: string[]
-  projectOptions: { id: string; name: string; hint?: string }[]
-  activitiesByProject?: Record<string, { id: string; name: string }[]>
-  fundersByProject?: Record<string, { id: string; name: string }[]>
-  categories?: CategoryRef[]
-  onDone?: () => void
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  payrollId: string;
+  entryIds: string[];
+  projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject?: Record<string, { id: string; name: string }[]>;
+  fundersByProject?: Record<string, { id: string; name: string }[]>;
+  categories?: CategoryRef[];
+  onDone?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -76,14 +76,14 @@ export function BulkEditEntriesDialog({
             categories={categories}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
-              onOpenChange(false)
-              onDone?.()
+              onOpenChange(false);
+              onDone?.();
             }}
           />
         ) : null}
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 function BulkEditForm({
@@ -96,56 +96,57 @@ function BulkEditForm({
   onCancel,
   onDone,
 }: {
-  payrollId: string
-  entryIds: string[]
-  projectOptions: { id: string; name: string; hint?: string }[]
-  activitiesByProject: Record<string, { id: string; name: string }[]>
-  fundersByProject: Record<string, { id: string; name: string }[]>
-  categories: CategoryRef[]
-  onCancel: () => void
-  onDone: () => void
+  payrollId: string;
+  entryIds: string[];
+  projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject: Record<string, { id: string; name: string }[]>;
+  fundersByProject: Record<string, { id: string; name: string }[]>;
+  categories: CategoryRef[];
+  onCancel: () => void;
+  onDone: () => void;
 }) {
-  const [pending, start] = useTransition()
-  const [changeAmount, setChangeAmount] = useState(false)
-  const [changeAlloc, setChangeAlloc] = useState(false)
-  const [amount, setAmount] = useState(0)
-  const [alloc, setAlloc] = useState<AllocationRow[]>([])
-  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([])
-  const [catalog, setCatalog] = useState(initialCategories)
+  const [pending, start] = useTransition();
+  const [changeAmount, setChangeAmount] = useState(false);
+  const [changeAlloc, setChangeAlloc] = useState(false);
+  const [amount, setAmount] = useState(0);
+  const [alloc, setAlloc] = useState<AllocationRow[]>([]);
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([]);
+  const [catalog, setCatalog] = useState(initialCategories);
 
-  const n = entryIds.length
-  const hasChange = changeAmount || changeAlloc
+  const n = entryIds.length;
+  const hasChange = changeAmount || changeAlloc;
   const funderOptions = unionFundersFromProjects(
     alloc.map((a) => a.id),
-    fundersByProject
-  )
+    fundersByProject,
+  );
 
   function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!hasChange) return void toast.error("Indica què vols canviar")
+    e.preventDefault();
+    if (!hasChange) return void toast.error("Indica què vols canviar");
     if (changeAmount && !(amount >= 0)) {
-      return void toast.error("La quantitat no és vàlida")
+      return void toast.error("La quantitat no és vàlida");
     }
     if (changeAlloc) {
-      const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
-      if (err) return void toast.error(`Projectes: ${err}`)
-      const funderErr = allocationError(funderAlloc, "max")
-      if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
+      const err = allocationError(alloc, "max", {
+        allowDuplicateIds: true,
+        allowOver100: true,
+      });
+      if (err) return void toast.error(`Projectes: ${err}`);
+      const funderErr = allocationError(funderAlloc, "max");
+      if (funderErr) return void toast.error(`Finançadors: ${funderErr}`);
     }
     start(async () => {
       const res = await bulkUpdatePayrollEntries(payrollId, entryIds, {
         amount: changeAmount ? amount : undefined,
         allocations: changeAlloc ? alloc : undefined,
         funderAllocations: changeAlloc ? funderAlloc : undefined,
-      })
-      if (!res.ok) return void toast.error(res.error)
+      });
+      if (!res.ok) return void toast.error(res.error);
       toast.success(
-        n === 1
-          ? "Registre actualitzat"
-          : `${n} registres actualitzats`,
-      )
-      onDone()
-    })
+        n === 1 ? "Registre actualitzat" : `${n} registres actualitzats`,
+      );
+      onDone();
+    });
   }
 
   return (
@@ -217,8 +218,8 @@ function BulkEditForm({
                   allowOver100
                 />
                 <FieldDescription>
-                  Capa opcional de finançadors. El residual es reparteix segons el
-                  mix dels projectes.
+                  Capa opcional de finançadors. El residual es reparteix segons
+                  el mix dels projectes.
                 </FieldDescription>
                 <AllocationEditor
                   value={funderAlloc}
@@ -226,7 +227,7 @@ function BulkEditForm({
                   options={funderOptions}
                   mode="max"
                   itemLabel="finançador"
-                  emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                  emptyText="Sense finançadors explícits · la financiació es reparteix segons els finançadors assignats als projectes"
                   funderOptions
                 />
               </>
@@ -247,5 +248,5 @@ function BulkEditForm({
         </Button>
       </DialogFooter>
     </>
-  )
+  );
 }

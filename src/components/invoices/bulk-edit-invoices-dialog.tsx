@@ -1,13 +1,20 @@
-"use client"
+"use client";
 
-import Link from "next/link"
-import { useState, useTransition } from "react"
-import { toast } from "sonner"
+import Link from "next/link";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
-import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
-import { CategoryPicker, type CategoryRef } from "@/components/categories/category-picker"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
+import {
+  AllocationEditor,
+  allocationError,
+  type AllocationRow,
+} from "@/components/app/allocation-editor";
+import {
+  CategoryPicker,
+  type CategoryRef,
+} from "@/components/categories/category-picker";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -15,25 +22,38 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSet } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type"
-import { unionFundersFromProjects } from "@/lib/funders"
-import { DEFAULT_VAT_DEDUCTIBLE_RATE, VAT_RATES } from "@/lib/invoice"
-import { bulkUpdateInvoices } from "@/server/actions"
-import type { SupplierOption } from "@/server/queries"
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldSet,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { COST_TYPE_LABELS, type CostType } from "@/lib/cost-type";
+import { unionFundersFromProjects } from "@/lib/funders";
+import { DEFAULT_VAT_DEDUCTIBLE_RATE, VAT_RATES } from "@/lib/invoice";
+import { bulkUpdateInvoices } from "@/server/actions";
+import type { SupplierOption } from "@/server/queries";
 
-const NONE = "none"
+const NONE = "none";
 
 type Fiscal = {
-  supplierName: string
-  supplierTaxId: string | null
-  supplierAddress: string | null
-  supplierPostalCode: string | null
-  supplierCity: string | null
-}
+  supplierName: string;
+  supplierTaxId: string | null;
+  supplierAddress: string | null;
+  supplierPostalCode: string | null;
+  supplierCity: string | null;
+};
 
 const EMPTY: Fiscal = {
   supplierName: "",
@@ -41,7 +61,7 @@ const EMPTY: Fiscal = {
   supplierAddress: "",
   supplierPostalCode: "",
   supplierCity: "",
-}
+};
 
 export function BulkEditInvoicesDialog({
   open,
@@ -55,27 +75,29 @@ export function BulkEditInvoicesDialog({
   defaultVatDeductibleRate = DEFAULT_VAT_DEDUCTIBLE_RATE,
   onDone,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  invoiceIds: string[]
-  projectOptions: { id: string; name: string; hint?: string }[]
-  activitiesByProject?: Record<string, { id: string; name: string }[]>
-  fundersByProject?: Record<string, { id: string; name: string }[]>
-  suppliers: SupplierOption[]
-  categories?: CategoryRef[]
-  defaultVatDeductibleRate?: number
-  onDone?: () => void
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  invoiceIds: string[];
+  projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject?: Record<string, { id: string; name: string }[]>;
+  fundersByProject?: Record<string, { id: string; name: string }[]>;
+  suppliers: SupplierOption[];
+  categories?: CategoryRef[];
+  defaultVatDeductibleRate?: number;
+  onDone?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            Editar {invoiceIds.length} {invoiceIds.length === 1 ? "factura" : "factures"}
+            Editar {invoiceIds.length}{" "}
+            {invoiceIds.length === 1 ? "factura" : "factures"}
           </DialogTitle>
           <DialogDescription>
-            Només s&apos;apliquen els camps que activis. Els imports es recalculen a partir de la base de cada
-            factura; l&apos;assignació a projectes substitueix la que tinguin ara.
+            Només s&apos;apliquen els camps que activis. Els imports es
+            recalculen a partir de la base de cada factura; l&apos;assignació a
+            projectes substitueix la que tinguin ara.
           </DialogDescription>
         </DialogHeader>
         {open ? (
@@ -90,14 +112,14 @@ export function BulkEditInvoicesDialog({
             defaultVatDeductibleRate={defaultVatDeductibleRate}
             onCancel={() => onOpenChange(false)}
             onDone={() => {
-              onOpenChange(false)
-              onDone?.()
+              onOpenChange(false);
+              onDone?.();
             }}
           />
         ) : null}
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 function BulkEditForm({
@@ -111,41 +133,46 @@ function BulkEditForm({
   onCancel,
   onDone,
 }: {
-  invoiceIds: string[]
-  projectOptions: { id: string; name: string; hint?: string }[]
-  activitiesByProject: Record<string, { id: string; name: string }[]>
-  fundersByProject: Record<string, { id: string; name: string }[]>
-  suppliers: SupplierOption[]
-  categories: CategoryRef[]
-  defaultVatDeductibleRate: number
-  onCancel: () => void
-  onDone: () => void
+  invoiceIds: string[];
+  projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject: Record<string, { id: string; name: string }[]>;
+  fundersByProject: Record<string, { id: string; name: string }[]>;
+  suppliers: SupplierOption[];
+  categories: CategoryRef[];
+  defaultVatDeductibleRate: number;
+  onCancel: () => void;
+  onDone: () => void;
 }) {
-  const [pending, start] = useTransition()
-  const [changeSupplier, setChangeSupplier] = useState(false)
-  const [changeVat, setChangeVat] = useState(false)
-  const [changeVatDeductible, setChangeVatDeductible] = useState(false)
-  const [changeIrpf, setChangeIrpf] = useState(false)
-  const [changeCostType, setChangeCostType] = useState(false)
-  const [changeCategories, setChangeCategories] = useState(false)
-  const [changeAlloc, setChangeAlloc] = useState(false)
-  const [supplierId, setSupplierId] = useState(NONE)
-  const [fiscal, setFiscal] = useState<Fiscal>(EMPTY)
-  const [vatRate, setVatRate] = useState("21")
-  const [vatDeductibleRate, setVatDeductibleRate] = useState(defaultVatDeductibleRate)
-  const [irpfRate, setIrpfRate] = useState(0)
-  const [costType, setCostType] = useState<CostType>("direct")
-  const [categoryIds, setCategoryIds] = useState<string[]>([])
-  const [catalog, setCatalog] = useState(initialCategories)
-  const [alloc, setAlloc] = useState<AllocationRow[]>([])
-  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([])
+  const [pending, start] = useTransition();
+  const [changeSupplier, setChangeSupplier] = useState(false);
+  const [changeVat, setChangeVat] = useState(false);
+  const [changeVatDeductible, setChangeVatDeductible] = useState(false);
+  const [changeIrpf, setChangeIrpf] = useState(false);
+  const [changeCostType, setChangeCostType] = useState(false);
+  const [changeCategories, setChangeCategories] = useState(false);
+  const [changeAlloc, setChangeAlloc] = useState(false);
+  const [supplierId, setSupplierId] = useState(NONE);
+  const [fiscal, setFiscal] = useState<Fiscal>(EMPTY);
+  const [vatRate, setVatRate] = useState("21");
+  const [vatDeductibleRate, setVatDeductibleRate] = useState(
+    defaultVatDeductibleRate,
+  );
+  const [irpfRate, setIrpfRate] = useState(0);
+  const [costType, setCostType] = useState<CostType>("direct");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [catalog, setCatalog] = useState(initialCategories);
+  const [alloc, setAlloc] = useState<AllocationRow[]>([]);
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([]);
 
-  const linked = supplierId !== NONE ? suppliers.find((s) => s.id === supplierId) : undefined
-  const n = invoiceIds.length
+  const linked =
+    supplierId !== NONE
+      ? suppliers.find((s) => s.id === supplierId)
+      : undefined;
+  const n = invoiceIds.length;
   const funderOptions = unionFundersFromProjects(
     alloc.map((a) => a.id),
-    fundersByProject
-  )
+    fundersByProject,
+  );
   const hasChange =
     changeSupplier ||
     changeVat ||
@@ -153,35 +180,39 @@ function BulkEditForm({
     changeIrpf ||
     changeCostType ||
     changeCategories ||
-    changeAlloc
+    changeAlloc;
 
   function onPickSupplier(id: string) {
-    setSupplierId(id)
-    if (id === NONE) return
-    const s = suppliers.find((x) => x.id === id)
-    if (!s) return
+    setSupplierId(id);
+    if (id === NONE) return;
+    const s = suppliers.find((x) => x.id === id);
+    if (!s) return;
     setFiscal({
       supplierName: s.name,
       supplierTaxId: s.taxId,
       supplierAddress: s.address,
       supplierPostalCode: s.postalCode,
       supplierCity: s.city,
-    })
-    if (VAT_RATES.includes(s.defaultVatRate)) setVatRate(String(s.defaultVatRate))
-    setIrpfRate(s.defaultIrpfRate)
+    });
+    if (VAT_RATES.includes(s.defaultVatRate))
+      setVatRate(String(s.defaultVatRate));
+    setIrpfRate(s.defaultIrpfRate);
   }
 
   function onSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!hasChange) return void toast.error("Indica què vols canviar")
+    e.preventDefault();
+    if (!hasChange) return void toast.error("Indica què vols canviar");
     if (changeSupplier && !fiscal.supplierName.trim()) {
-      return void toast.error("El nom del proveïdor és obligatori")
+      return void toast.error("El nom del proveïdor és obligatori");
     }
     if (changeAlloc) {
-      const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
-      if (err) return void toast.error(`Projectes: ${err}`)
-      const funderErr = allocationError(funderAlloc, "max")
-      if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
+      const err = allocationError(alloc, "max", {
+        allowDuplicateIds: true,
+        allowOver100: true,
+      });
+      if (err) return void toast.error(`Projectes: ${err}`);
+      const funderErr = allocationError(funderAlloc, "max");
+      if (funderErr) return void toast.error(`Finançadors: ${funderErr}`);
     }
     start(async () => {
       const res = await bulkUpdateInvoices(invoiceIds, {
@@ -198,17 +229,20 @@ function BulkEditForm({
         categoryIds: changeCategories ? categoryIds : undefined,
         allocations: changeAlloc ? alloc : undefined,
         funderAllocations: changeAlloc ? funderAlloc : undefined,
-      })
-      if (!res.ok) return void toast.error(res.error)
-      toast.success(n === 1 ? "Factura actualitzada" : `${n} factures actualitzades`)
-      onDone()
-    })
+      });
+      if (!res.ok) return void toast.error(res.error);
+      toast.success(
+        n === 1 ? "Factura actualitzada" : `${n} factures actualitzades`,
+      );
+      onDone();
+    });
   }
 
   const fiscalField = (k: keyof Fiscal) => ({
     value: fiscal[k] ?? "",
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => setFiscal({ ...fiscal, [k]: e.target.value }),
-  })
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      setFiscal({ ...fiscal, [k]: e.target.value }),
+  });
 
   return (
     <>
@@ -221,7 +255,9 @@ function BulkEditForm({
                 checked={changeSupplier}
                 onCheckedChange={(v) => setChangeSupplier(v === true)}
               />
-              <FieldLabel htmlFor="bulk-supplier">Canviar el proveïdor</FieldLabel>
+              <FieldLabel htmlFor="bulk-supplier">
+                Canviar el proveïdor
+              </FieldLabel>
             </Field>
             {changeSupplier && (
               <>
@@ -233,13 +269,20 @@ function BulkEditForm({
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value={NONE}>
-                        <span className="text-muted-foreground">Cap · introduir les dades manualment</span>
+                        <span className="text-muted-foreground">
+                          Cap · introduir les dades manualment
+                        </span>
                       </SelectItem>
                       <SelectSeparator />
                       {suppliers.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.name}
-                          {s.taxId && <span className="text-muted-foreground"> · {s.taxId}</span>}
+                          {s.taxId && (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              · {s.taxId}
+                            </span>
+                          )}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -248,7 +291,10 @@ function BulkEditForm({
                     {linked ? (
                       <>
                         Les factures quedaran enllaçades a{" "}
-                        <Link href={`/proveidors/${linked.id}`} className="text-primary hover:underline">
+                        <Link
+                          href={`/proveidors/${linked.id}`}
+                          className="text-primary hover:underline"
+                        >
                           {linked.name}
                         </Link>
                         .
@@ -260,24 +306,50 @@ function BulkEditForm({
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field>
-                    <FieldLabel htmlFor="bulk-supplierName">Nom o raó social *</FieldLabel>
-                    <Input id="bulk-supplierName" required={changeSupplier} {...fiscalField("supplierName")} />
+                    <FieldLabel htmlFor="bulk-supplierName">
+                      Nom o raó social *
+                    </FieldLabel>
+                    <Input
+                      id="bulk-supplierName"
+                      required={changeSupplier}
+                      {...fiscalField("supplierName")}
+                    />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="bulk-supplierTaxId">NIF / CIF</FieldLabel>
-                    <Input id="bulk-supplierTaxId" {...fiscalField("supplierTaxId")} />
+                    <FieldLabel htmlFor="bulk-supplierTaxId">
+                      NIF / CIF
+                    </FieldLabel>
+                    <Input
+                      id="bulk-supplierTaxId"
+                      {...fiscalField("supplierTaxId")}
+                    />
                   </Field>
                   <Field className="sm:col-span-2">
-                    <FieldLabel htmlFor="bulk-supplierAddress">Adreça</FieldLabel>
-                    <Input id="bulk-supplierAddress" {...fiscalField("supplierAddress")} />
+                    <FieldLabel htmlFor="bulk-supplierAddress">
+                      Adreça
+                    </FieldLabel>
+                    <Input
+                      id="bulk-supplierAddress"
+                      {...fiscalField("supplierAddress")}
+                    />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="bulk-supplierPostalCode">Codi postal</FieldLabel>
-                    <Input id="bulk-supplierPostalCode" {...fiscalField("supplierPostalCode")} />
+                    <FieldLabel htmlFor="bulk-supplierPostalCode">
+                      Codi postal
+                    </FieldLabel>
+                    <Input
+                      id="bulk-supplierPostalCode"
+                      {...fiscalField("supplierPostalCode")}
+                    />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="bulk-supplierCity">Població</FieldLabel>
-                    <Input id="bulk-supplierCity" {...fiscalField("supplierCity")} />
+                    <FieldLabel htmlFor="bulk-supplierCity">
+                      Població
+                    </FieldLabel>
+                    <Input
+                      id="bulk-supplierCity"
+                      {...fiscalField("supplierCity")}
+                    />
                   </Field>
                 </div>
               </>
@@ -286,7 +358,11 @@ function BulkEditForm({
 
           <FieldSet>
             <Field orientation="horizontal">
-              <Checkbox id="bulk-vat" checked={changeVat} onCheckedChange={(v) => setChangeVat(v === true)} />
+              <Checkbox
+                id="bulk-vat"
+                checked={changeVat}
+                onCheckedChange={(v) => setChangeVat(v === true)}
+              />
               <FieldLabel htmlFor="bulk-vat">Canviar l&apos;IVA</FieldLabel>
             </Field>
             {changeVat && (
@@ -304,7 +380,10 @@ function BulkEditForm({
                     ))}
                   </SelectContent>
                 </Select>
-                <FieldDescription>Es recalcula l&apos;import d&apos;IVA i el total de cada factura.</FieldDescription>
+                <FieldDescription>
+                  Es recalcula l&apos;import d&apos;IVA i el total de cada
+                  factura.
+                </FieldDescription>
               </Field>
             )}
           </FieldSet>
@@ -316,11 +395,15 @@ function BulkEditForm({
                 checked={changeVatDeductible}
                 onCheckedChange={(v) => setChangeVatDeductible(v === true)}
               />
-              <FieldLabel htmlFor="bulk-vat-deductible">Canviar l&apos;IVA deduïble</FieldLabel>
+              <FieldLabel htmlFor="bulk-vat-deductible">
+                Canviar l&apos;IVA deduïble
+              </FieldLabel>
             </Field>
             {changeVatDeductible && (
               <Field>
-                <FieldLabel htmlFor="bulk-vat-deductible-rate">IVA deduïble (%)</FieldLabel>
+                <FieldLabel htmlFor="bulk-vat-deductible-rate">
+                  IVA deduïble (%)
+                </FieldLabel>
                 <Input
                   id="bulk-vat-deductible-rate"
                   type="number"
@@ -328,11 +411,14 @@ function BulkEditForm({
                   max={100}
                   step="0.01"
                   required={changeVatDeductible}
-                  value={Number.isNaN(vatDeductibleRate) ? "" : vatDeductibleRate}
+                  value={
+                    Number.isNaN(vatDeductibleRate) ? "" : vatDeductibleRate
+                  }
                   onChange={(e) => setVatDeductibleRate(e.target.valueAsNumber)}
                 />
                 <FieldDescription>
-                  Percentatge de l&apos;IVA original que forma part del cost imputable de cada factura.
+                  Percentatge de l&apos;IVA original que forma part del cost
+                  imputable de cada factura.
                 </FieldDescription>
               </Field>
             )}
@@ -340,12 +426,18 @@ function BulkEditForm({
 
           <FieldSet>
             <Field orientation="horizontal">
-              <Checkbox id="bulk-irpf" checked={changeIrpf} onCheckedChange={(v) => setChangeIrpf(v === true)} />
+              <Checkbox
+                id="bulk-irpf"
+                checked={changeIrpf}
+                onCheckedChange={(v) => setChangeIrpf(v === true)}
+              />
               <FieldLabel htmlFor="bulk-irpf">Canviar l&apos;IRPF</FieldLabel>
             </Field>
             {changeIrpf && (
               <Field>
-                <FieldLabel htmlFor="bulk-irpf-rate">Tipus d&apos;IRPF (%)</FieldLabel>
+                <FieldLabel htmlFor="bulk-irpf-rate">
+                  Tipus d&apos;IRPF (%)
+                </FieldLabel>
                 <Input
                   id="bulk-irpf-rate"
                   type="number"
@@ -356,7 +448,9 @@ function BulkEditForm({
                   value={Number.isNaN(irpfRate) ? "" : irpfRate}
                   onChange={(e) => setIrpfRate(e.target.valueAsNumber)}
                 />
-                <FieldDescription>Es recalcula la retenció i el total de cada factura.</FieldDescription>
+                <FieldDescription>
+                  Es recalcula la retenció i el total de cada factura.
+                </FieldDescription>
               </Field>
             )}
           </FieldSet>
@@ -368,18 +462,30 @@ function BulkEditForm({
                 checked={changeCostType}
                 onCheckedChange={(v) => setChangeCostType(v === true)}
               />
-              <FieldLabel htmlFor="bulk-cost-type">Canviar el tipus de cost</FieldLabel>
+              <FieldLabel htmlFor="bulk-cost-type">
+                Canviar el tipus de cost
+              </FieldLabel>
             </Field>
             {changeCostType && (
               <Field>
                 <FieldLabel>Tipus</FieldLabel>
-                <Select value={costType} onValueChange={(v) => setCostType(v as CostType)}>
-                  <SelectTrigger className="w-full sm:w-56" aria-label="Tipus de cost">
+                <Select
+                  value={costType}
+                  onValueChange={(v) => setCostType(v as CostType)}
+                >
+                  <SelectTrigger
+                    className="w-full sm:w-56"
+                    aria-label="Tipus de cost"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="direct">{COST_TYPE_LABELS.direct}</SelectItem>
-                    <SelectItem value="indirect">{COST_TYPE_LABELS.indirect}</SelectItem>
+                    <SelectItem value="direct">
+                      {COST_TYPE_LABELS.direct}
+                    </SelectItem>
+                    <SelectItem value="indirect">
+                      {COST_TYPE_LABELS.indirect}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </Field>
@@ -393,7 +499,9 @@ function BulkEditForm({
                 checked={changeCategories}
                 onCheckedChange={(v) => setChangeCategories(v === true)}
               />
-              <FieldLabel htmlFor="bulk-categories">Canviar les categories</FieldLabel>
+              <FieldLabel htmlFor="bulk-categories">
+                Canviar les categories
+              </FieldLabel>
             </Field>
             {changeCategories && (
               <Field>
@@ -405,7 +513,8 @@ function BulkEditForm({
                   onCatalogChange={setCatalog}
                 />
                 <FieldDescription>
-                  Substitueix les categories de totes les factures seleccionades.
+                  Substitueix les categories de totes les factures
+                  seleccionades.
                 </FieldDescription>
               </Field>
             )}
@@ -413,13 +522,20 @@ function BulkEditForm({
 
           <FieldSet>
             <Field orientation="horizontal">
-              <Checkbox id="bulk-alloc" checked={changeAlloc} onCheckedChange={(v) => setChangeAlloc(v === true)} />
-              <FieldLabel htmlFor="bulk-alloc">Canviar l&apos;assignació a projectes</FieldLabel>
+              <Checkbox
+                id="bulk-alloc"
+                checked={changeAlloc}
+                onCheckedChange={(v) => setChangeAlloc(v === true)}
+              />
+              <FieldLabel htmlFor="bulk-alloc">
+                Canviar l&apos;assignació a projectes
+              </FieldLabel>
             </Field>
             {changeAlloc && (
               <>
                 <FieldDescription>
-                  Aquesta assignació es copiarà a totes les factures seleccionades (substitueix l&apos;actual).
+                  Aquesta assignació es copiarà a totes les factures
+                  seleccionades (substitueix l&apos;actual).
                 </FieldDescription>
                 <AllocationEditor
                   value={alloc}
@@ -433,7 +549,8 @@ function BulkEditForm({
                   allowOver100
                 />
                 <FieldDescription>
-                  Capa opcional de finançadors. El residual es reparteix segons el mix dels projectes.
+                  Capa opcional de finançadors. El residual es reparteix segons
+                  el mix dels projectes.
                 </FieldDescription>
                 <AllocationEditor
                   value={funderAlloc}
@@ -441,7 +558,7 @@ function BulkEditForm({
                   options={funderOptions}
                   mode="max"
                   itemLabel="finançador"
-                  emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                  emptyText="Sense finançadors explícits · la financiació es reparteix segons els finançadors assignats als projectes"
                   funderOptions
                 />
               </>
@@ -453,10 +570,14 @@ function BulkEditForm({
         <Button variant="outline" onClick={onCancel}>
           Cancel·la
         </Button>
-        <Button type="submit" form="bulk-invoice-form" disabled={pending || !hasChange}>
+        <Button
+          type="submit"
+          form="bulk-invoice-form"
+          disabled={pending || !hasChange}
+        >
           {pending ? "Desant…" : "Aplica"}
         </Button>
       </DialogFooter>
     </>
-  )
+  );
 }

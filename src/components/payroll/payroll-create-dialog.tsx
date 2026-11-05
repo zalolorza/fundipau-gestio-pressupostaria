@@ -1,12 +1,16 @@
-"use client"
+"use client";
 
-import { useRouter } from "next/navigation"
-import { useState, useTransition } from "react"
-import { toast } from "sonner"
+import { useRouter } from "next/navigation";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 
-import { AllocationEditor, allocationError, type AllocationRow } from "@/components/app/allocation-editor"
-import type { CategoryRef } from "@/components/categories/category-picker"
-import { Button } from "@/components/ui/button"
+import {
+  AllocationEditor,
+  allocationError,
+  type AllocationRow,
+} from "@/components/app/allocation-editor";
+import type { CategoryRef } from "@/components/categories/category-picker";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -15,14 +19,21 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { MonthPicker } from "@/components/ui/month-picker"
-import { Textarea } from "@/components/ui/textarea"
-import { unionFundersFromProjects } from "@/lib/funders"
-import { currentMonth } from "@/lib/months"
-import { createPayroll } from "@/server/actions"
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { MonthPicker } from "@/components/ui/month-picker";
+import { Textarea } from "@/components/ui/textarea";
+import { unionFundersFromProjects } from "@/lib/funders";
+import { currentMonth } from "@/lib/months";
+import { createPayroll } from "@/server/actions";
 
 export function PayrollCreateDialog({
   projectOptions,
@@ -31,52 +42,62 @@ export function PayrollCreateDialog({
   categories: initialCategories = [],
   children,
 }: {
-  projectOptions: { id: string; name: string; hint?: string }[]
-  activitiesByProject?: Record<string, { id: string; name: string }[]>
-  fundersByProject?: Record<string, { id: string; name: string }[]>
-  categories?: CategoryRef[]
-  children: React.ReactNode
+  projectOptions: { id: string; name: string; hint?: string }[];
+  activitiesByProject?: Record<string, { id: string; name: string }[]>;
+  fundersByProject?: Record<string, { id: string; name: string }[]>;
+  categories?: CategoryRef[];
+  children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false)
-  const [alloc, setAlloc] = useState<AllocationRow[]>([])
-  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([])
-  const [catalog, setCatalog] = useState(initialCategories)
-  const [pending, start] = useTransition()
-  const router = useRouter()
+  const [open, setOpen] = useState(false);
+  const [alloc, setAlloc] = useState<AllocationRow[]>([]);
+  const [funderAlloc, setFunderAlloc] = useState<AllocationRow[]>([]);
+  const [catalog, setCatalog] = useState(initialCategories);
+  const [pending, start] = useTransition();
+  const router = useRouter();
   const funderOptions = unionFundersFromProjects(
     alloc.map((a) => a.id),
-    fundersByProject
-  )
+    fundersByProject,
+  );
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    const err = allocationError(alloc, "max", { allowDuplicateIds: true, allowOver100: true })
-    if (err) return void toast.error(`Projectes: ${err}`)
-    const funderErr = allocationError(funderAlloc, "max")
-    if (funderErr) return void toast.error(`Finançadors: ${funderErr}`)
-    const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>
+    e.preventDefault();
+    const err = allocationError(alloc, "max", {
+      allowDuplicateIds: true,
+      allowOver100: true,
+    });
+    if (err) return void toast.error(`Projectes: ${err}`);
+    const funderErr = allocationError(funderAlloc, "max");
+    if (funderErr) return void toast.error(`Finançadors: ${funderErr}`);
+    const f = Object.fromEntries(new FormData(e.currentTarget)) as Record<
+      string,
+      string
+    >;
     start(async () => {
       const res = await createPayroll(
-        { ...f, startMonth: `${f.startMonth}-01`, endMonth: f.endMonth ? `${f.endMonth}-01` : null } as never,
+        {
+          ...f,
+          startMonth: `${f.startMonth}-01`,
+          endMonth: f.endMonth ? `${f.endMonth}-01` : null,
+        } as never,
         alloc,
-        funderAlloc
-      )
-      if (!res.ok) return void toast.error(res.error)
-      toast.success("Nòmina creada")
-      setOpen(false)
-      if (res.data) router.push(`/nomines/${res.data.id}`)
-    })
+        funderAlloc,
+      );
+      if (!res.ok) return void toast.error(res.error);
+      toast.success("Nòmina creada");
+      setOpen(false);
+      if (res.data) router.push(`/nomines/${res.data.id}`);
+    });
   }
 
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
-        setOpen(o)
+        setOpen(o);
         if (o) {
-          setAlloc([])
-          setFunderAlloc([])
-          setCatalog(initialCategories)
+          setAlloc([]);
+          setFunderAlloc([]);
+          setCatalog(initialCategories);
         }
       }}
     >
@@ -85,8 +106,8 @@ export function PayrollCreateDialog({
         <DialogHeader>
           <DialogTitle>Nova nòmina</DialogTitle>
           <DialogDescription>
-            Es crearà un registre per cada mes, des del mes d&apos;inici fins al mes final (o fins a desembre si no
-            n&apos;hi ha).
+            Es crearà un registre per cada mes, des del mes d&apos;inici fins al
+            mes final (o fins a desembre si no n&apos;hi ha).
           </DialogDescription>
         </DialogHeader>
         <form id="payroll-form" onSubmit={onSubmit}>
@@ -105,13 +126,26 @@ export function PayrollCreateDialog({
                 <Input id="role" name="role" />
               </Field>
               <Field>
-                <FieldLabel htmlFor="monthlyAmount">Quantitat mensual (€) *</FieldLabel>
-                <Input id="monthlyAmount" name="monthlyAmount" type="number" step="0.01" min={0} required />
-                <FieldDescription>Cost total per a l&apos;entitat (brut + Seguretat Social).</FieldDescription>
+                <FieldLabel htmlFor="monthlyAmount">
+                  Quantitat mensual (€) *
+                </FieldLabel>
+                <Input
+                  id="monthlyAmount"
+                  name="monthlyAmount"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  required
+                />
+                <FieldDescription>
+                  Cost total per a l&apos;entitat (brut + Seguretat Social).
+                </FieldDescription>
               </Field>
               <div className="grid grid-cols-2 gap-4">
                 <Field>
-                  <FieldLabel htmlFor="startMonth">Mes d&apos;inici *</FieldLabel>
+                  <FieldLabel htmlFor="startMonth">
+                    Mes d&apos;inici *
+                  </FieldLabel>
                   <MonthPicker
                     id="startMonth"
                     name="startMonth"
@@ -131,7 +165,10 @@ export function PayrollCreateDialog({
             </Field>
             <FieldSet>
               <FieldLegend>Assignació inicial a projectes</FieldLegend>
-              <FieldDescription>S&apos;aplicarà a tots els mesos generats. Després es pot canviar mes a mes.</FieldDescription>
+              <FieldDescription>
+                S&apos;aplicarà a tots els mesos generats. Després es pot
+                canviar mes a mes.
+              </FieldDescription>
               <AllocationEditor
                 value={alloc}
                 onChange={setAlloc}
@@ -150,8 +187,8 @@ export function PayrollCreateDialog({
             <FieldSet>
               <FieldLegend>Finançadors</FieldLegend>
               <FieldDescription>
-                Capa opcional de finançadors explícits. El residual es reparteix segons el mix
-                dels projectes assignats.
+                Capa opcional de finançadors explícits. El residual es reparteix
+                segons el mix dels projectes assignats.
               </FieldDescription>
               <AllocationEditor
                 value={funderAlloc}
@@ -159,7 +196,7 @@ export function PayrollCreateDialog({
                 options={funderOptions}
                 mode="max"
                 itemLabel="finançador"
-                emptyText="Sense finançadors explícits · el residual va al mix dels projectes"
+                emptyText="Sense finançadors explícits · la financiació es reparteix segons els finançadors assignats als projectes"
                 funderOptions
               />
             </FieldSet>
@@ -175,5 +212,5 @@ export function PayrollCreateDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
