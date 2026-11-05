@@ -5,6 +5,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -495,6 +496,28 @@ export const payrollEntryProjectCategories = pgTable(
   ]
 )
 
+/** Historial append-only de revisions (snapshots JSON abans de mutacions destructives). */
+export const entityRevisions = pgTable(
+  "entity_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    action: text("action").notNull(),
+    actorUserId: text("actor_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    summary: text("summary").notNull(),
+    before: jsonb("before").notNull(),
+    after: jsonb("after"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("entity_revisions_entity_idx").on(t.entityType, t.entityId, t.createdAt),
+    index("entity_revisions_created_idx").on(t.createdAt),
+  ]
+)
+
 /* -------------------------------------------------------------------------- */
 /*                                 Relacions                                  */
 /* -------------------------------------------------------------------------- */
@@ -646,3 +669,4 @@ export type ProjectActivity = typeof projectActivities.$inferSelect
 export type Invitation = typeof invitations.$inferSelect
 export type User = typeof user.$inferSelect
 export type AppSetting = typeof appSettings.$inferSelect
+export type EntityRevision = typeof entityRevisions.$inferSelect

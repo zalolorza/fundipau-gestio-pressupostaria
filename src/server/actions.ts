@@ -32,6 +32,7 @@ import { funderColumns, parseFunderKey } from "@/lib/funders"
 import { computeInvoice } from "@/lib/invoice"
 import { isInvoiceFilePathname } from "@/lib/invoice-file"
 import { addMonths, endOfYear, monthRange, toMonth } from "@/lib/months"
+import { recordRevision, recordRevisionsForIds } from "@/server/revisions"
 
 async function deleteBlobQuietly(pathname: string | null | undefined) {
   if (!pathname || !isInvoiceFilePathname(pathname)) return
@@ -308,7 +309,14 @@ export async function saveClient(id: string | null, input: ClientInput): Promise
 }
 
 export async function deleteClient(id: string) {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "client",
+    entityId: id,
+    action: "delete",
+    summary: "Eliminació del finançador (amb junctions i finançadors d'assignació)",
+    actorUserId: session.user.id,
+  })
   await db.delete(clients).where(eq(clients.id, id))
   revalidatePath("/financadors")
   revalidatePath("/subvencions", "layout")
@@ -360,7 +368,14 @@ export async function saveSubsidy(
 }
 
 export async function deleteSubsidy(id: string) {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "subsidy",
+    entityId: id,
+    action: "delete",
+    summary: "Eliminació de la subvenció (amb junctions i finançadors d'assignació)",
+    actorUserId: session.user.id,
+  })
   await db.delete(subsidies).where(eq(subsidies.id, id))
   revalidatePath("/subvencions")
   revalidatePath("/projectes", "layout")
@@ -373,10 +388,17 @@ export async function setSubsidyClients(
   subsidyId: string,
   input: { id: string; percentage: number }[]
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const list = allocationSchema.parse(input)
     checkAllocations(list, "max")
+    await recordRevision({
+      entityType: "subsidy",
+      entityId: subsidyId,
+      action: "replace_relations",
+      summary: "Reescriptura dels finançadors de la subvenció",
+      actorUserId: session.user.id,
+    })
     const del = db.delete(subsidyClients).where(eq(subsidyClients.subsidyId, subsidyId))
     if (list.length)
       await db.batch([
@@ -404,7 +426,7 @@ export async function setSubsidyProjects(
   subsidyId: string,
   input: { id: string; percentage: number }[]
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const list = allocationSchema.parse(input)
     const ids = new Set(list.map((a) => a.id))
@@ -424,11 +446,11 @@ export async function setSubsidyProjects(
 
     for (const row of current) {
       if (!ids.has(row.projectId)) {
-        await applySubsidyShareOnProject(row.projectId, subsidyId, null)
+        await applySubsidyShareOnProject(row.projectId, subsidyId, null, session.user.id)
       }
     }
     for (const a of list) {
-      await applySubsidyShareOnProject(a.id, subsidyId, a.percentage)
+      await applySubsidyShareOnProject(a.id, subsidyId, a.percentage, session.user.id)
     }
 
     revalidatePath(`/subvencions/${subsidyId}`)
@@ -445,7 +467,8 @@ export async function setSubsidyProjects(
 async function applySubsidyShareOnProject(
   projectId: string,
   subsidyId: string,
-  percentage: number | null
+  percentage: number | null,
+  actorUserId: string
 ) {
   const [clientRows, subsidyRows] = await Promise.all([
     db
@@ -478,6 +501,16 @@ async function applySubsidyShareOnProject(
     ]
   }
 
+  await recordRevision({
+    entityType: "project",
+    entityId: projectId,
+    action: "replace_relations",
+    summary:
+      percentage == null
+        ? "Reescalat de finançadors en treure una subvenció del projecte"
+        : "Reescalat de finançadors en assignar/canviar una subvenció del projecte",
+    actorUserId,
+  })
   await db.delete(projectClients).where(eq(projectClients.projectId, projectId))
   await db.delete(projectSubsidies).where(eq(projectSubsidies.projectId, projectId))
   const clientsList = next.filter((f) => f.kind === "client")
@@ -608,7 +641,15 @@ export async function saveProject(
 }
 
 export async function deleteProject(id: string) {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "project",
+    entityId: id,
+    action: "delete",
+    summary:
+      "Eliminació del projecte (amb finançadors, activitats i assignacions de factures/nòmines)",
+    actorUserId: session.user.id,
+  })
   await db.delete(projects).where(eq(projects.id, id))
   revalidatePath("/projectes")
   revalidatePath("/")
@@ -623,7 +664,7 @@ export async function setProjectFunders(
     subsidies?: { id: string; percentage: number }[]
   }
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const clientsList = allocationSchema.parse(input.clients ?? [])
     const subsidiesList = allocationSchema.parse(input.subsidies ?? [])
@@ -640,6 +681,13 @@ export async function setProjectFunders(
     if (!project) throw new Error("Projecte no trobat")
     await assertSubsidiesCoverProject(projectId, project.maxBudget, subsidiesList)
 
+    await recordRevision({
+      entityType: "project",
+      entityId: projectId,
+      action: "replace_relations",
+      summary: "Reescriptura dels finançadors del projecte",
+      actorUserId: session.user.id,
+    })
     await db.delete(projectClients).where(eq(projectClients.projectId, projectId))
     await db.delete(projectSubsidies).where(eq(projectSubsidies.projectId, projectId))
     if (clientsList.length)
@@ -826,13 +874,20 @@ export async function setInvoiceProjectActivity(
   allocationId: string,
   activityId: string | null
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const row = await db.query.invoiceProjects.findFirst({
       where: eq(invoiceProjects.id, allocationId),
-      columns: { id: true, projectId: true },
+      columns: { id: true, projectId: true, invoiceId: true },
     })
     if (!row) throw new Error("Assignació no trobada")
+    await recordRevision({
+      entityType: "invoice",
+      entityId: row.invoiceId,
+      action: "replace_relations",
+      summary: "Canvi d'activitat d'una assignació de factura",
+      actorUserId: session.user.id,
+    })
     const activity = (await resolveActivityId(row.projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
     await db.update(invoiceProjects).set({ activityId: activity }).where(eq(invoiceProjects.id, allocationId))
     revalidatePath(`/projectes/${row.projectId}`)
@@ -848,13 +903,20 @@ export async function setInvoiceProjectFunder(
   allocationId: string,
   funderId: string | null
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const row = await db.query.invoiceProjects.findFirst({
       where: eq(invoiceProjects.id, allocationId),
-      columns: { id: true, projectId: true },
+      columns: { id: true, projectId: true, invoiceId: true },
     })
     if (!row) throw new Error("Assignació no trobada")
+    await recordRevision({
+      entityType: "invoice",
+      entityId: row.invoiceId,
+      action: "replace_relations",
+      summary: "Canvi de finançador d'una assignació de factura",
+      actorUserId: session.user.id,
+    })
     const funder =
       (await resolveFunder(row.projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
         clientId: null,
@@ -873,7 +935,20 @@ export async function setInvoiceProjectFunder(
 }
 
 export async function unassignInvoiceAllocation(allocationId: string): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
+  const row = await db.query.invoiceProjects.findFirst({
+    where: eq(invoiceProjects.id, allocationId),
+    columns: { invoiceId: true, projectId: true },
+  })
+  if (row) {
+    await recordRevision({
+      entityType: "invoice",
+      entityId: row.invoiceId,
+      action: "replace_relations",
+      summary: "Desassignació d'una llesca de factura a projecte",
+      actorUserId: session.user.id,
+    })
+  }
   const [deleted] = await db
     .delete(invoiceProjects)
     .where(eq(invoiceProjects.id, allocationId))
@@ -885,7 +960,14 @@ export async function unassignInvoiceAllocation(allocationId: string): Promise<A
 
 /** @deprecated Prefer unassignInvoiceAllocation */
 export async function unassignInvoiceFromProject(projectId: string, invoiceId: string): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "invoice",
+    entityId: invoiceId,
+    action: "replace_relations",
+    summary: "Desassignació de factura d'un projecte",
+    actorUserId: session.user.id,
+  })
   await db
     .delete(invoiceProjects)
     .where(and(eq(invoiceProjects.invoiceId, invoiceId), eq(invoiceProjects.projectId, projectId)))
@@ -992,8 +1074,22 @@ export async function assignPayrollToProject(
 }
 
 export async function unassignPayrollAllocations(allocationIds: string[]): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   if (!allocationIds.length) return { ok: true }
+  const before = await db
+    .select({
+      entryId: payrollEntryProjects.entryId,
+      projectId: payrollEntryProjects.projectId,
+    })
+    .from(payrollEntryProjects)
+    .where(inArray(payrollEntryProjects.id, allocationIds))
+  await recordRevisionsForIds({
+    entityType: "payroll_entry",
+    entityIds: before.map((r) => r.entryId),
+    action: "replace_relations",
+    summary: "Desassignació d'assignacions de nòmina",
+    actorUserId: session.user.id,
+  })
   const deleted = await db
     .delete(payrollEntryProjects)
     .where(inArray(payrollEntryProjects.id, allocationIds))
@@ -1005,11 +1101,19 @@ export async function unassignPayrollAllocations(allocationIds: string[]): Promi
 
 /** @deprecated Prefer unassignPayrollAllocations */
 export async function unassignPayrollEntries(projectId: string, entryIds: string[]): Promise<ActionResult> {
-  await requireSession()
-  if (entryIds.length)
+  const session = await requireSession()
+  if (entryIds.length) {
+    await recordRevisionsForIds({
+      entityType: "payroll_entry",
+      entityIds: entryIds,
+      action: "replace_relations",
+      summary: "Desassignació d'entrades de nòmina d'un projecte",
+      actorUserId: session.user.id,
+    })
     await db
       .delete(payrollEntryProjects)
       .where(and(eq(payrollEntryProjects.projectId, projectId), inArray(payrollEntryProjects.entryId, entryIds)))
+  }
   revalidatePath(`/projectes/${projectId}`)
   revalidatePath("/nomines", "layout")
   return { ok: true }
@@ -1020,13 +1124,20 @@ export async function setPayrollEntryProjectActivity(
   allocationId: string,
   activityId: string | null
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const row = await db.query.payrollEntryProjects.findFirst({
       where: eq(payrollEntryProjects.id, allocationId),
-      columns: { id: true, projectId: true },
+      columns: { id: true, projectId: true, entryId: true },
     })
     if (!row) throw new Error("Assignació no trobada")
+    await recordRevision({
+      entityType: "payroll_entry",
+      entityId: row.entryId,
+      action: "replace_relations",
+      summary: "Canvi d'activitat d'una assignació de nòmina",
+      actorUserId: session.user.id,
+    })
     const activity = (await resolveActivityId(row.projectId, optionalActivityId.parse(activityId) ?? null)) ?? null
     await db
       .update(payrollEntryProjects)
@@ -1045,13 +1156,20 @@ export async function setPayrollEntryProjectFunder(
   allocationId: string,
   funderId: string | null
 ): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const row = await db.query.payrollEntryProjects.findFirst({
       where: eq(payrollEntryProjects.id, allocationId),
-      columns: { id: true, projectId: true },
+      columns: { id: true, projectId: true, entryId: true },
     })
     if (!row) throw new Error("Assignació no trobada")
+    await recordRevision({
+      entityType: "payroll_entry",
+      entityId: row.entryId,
+      action: "replace_relations",
+      summary: "Canvi de finançador d'una assignació de nòmina",
+      actorUserId: session.user.id,
+    })
     const funder =
       (await resolveFunder(row.projectId, optionalFunderId.parse(funderId) ?? null)) ?? {
         clientId: null,
@@ -1165,7 +1283,7 @@ export async function saveInvoice(
   }[],
   options?: { createSupplier?: boolean; categoryIds?: string[] }
 ): Promise<ActionResult<{ id: string; supplierId: string | null }>> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const parsed = invoiceSchema.parse(input)
     const { file, ...data } = parsed
@@ -1207,8 +1325,21 @@ export async function saveInvoice(
     }
 
     let invoiceId = id
-    if (id) await db.update(supplierInvoices).set(values).where(eq(supplierInvoices.id, id))
-    else [{ id: invoiceId }] = await db.insert(supplierInvoices).values(values).returning({ id: supplierInvoices.id })
+    if (id) {
+      await recordRevision({
+        entityType: "invoice",
+        entityId: id,
+        action: "replace_relations",
+        summary: "Desament de factura (capçalera, categories i assignacions)",
+        actorUserId: session.user.id,
+      })
+      await db.update(supplierInvoices).set(values).where(eq(supplierInvoices.id, id))
+    } else {
+      ;[{ id: invoiceId }] = await db
+        .insert(supplierInvoices)
+        .values(values)
+        .returning({ id: supplierInvoices.id })
+    }
 
     const clearAlloc = db.delete(invoiceProjects).where(eq(invoiceProjects.invoiceId, invoiceId!))
     if (resolved.length)
@@ -1244,7 +1375,14 @@ export async function saveInvoice(
 }
 
 export async function deleteInvoice(id: string): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "invoice",
+    entityId: id,
+    action: "delete",
+    summary: "Eliminació de factura (amb categories i assignacions)",
+    actorUserId: session.user.id,
+  })
   const row = await db.query.supplierInvoices.findFirst({
     where: eq(supplierInvoices.id, id),
     columns: { filePathname: true },
@@ -1302,12 +1440,22 @@ export async function bulkUpdateInvoices(
   ids: string[],
   patch: BulkInvoicePatch
 ): Promise<ActionResult<{ count: number }>> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const invoiceIds = invoiceIdsSchema.parse(ids)
     const data = bulkInvoicePatchSchema.parse(patch)
     if (data.allocations)
       checkAllocations(data.allocations, "max", { allowDuplicateIds: true, allowOver100: true })
+
+    if (data.allocations !== undefined || data.categoryIds !== undefined) {
+      await recordRevisionsForIds({
+        entityType: "invoice",
+        entityIds: invoiceIds,
+        action: "replace_relations",
+        summary: "Actualització massiva de factures (categories i/o assignacions)",
+        actorUserId: session.user.id,
+      })
+    }
 
     if (data.supplier) {
       await db
@@ -1410,9 +1558,16 @@ export async function bulkUpdateInvoices(
 }
 
 export async function bulkDeleteInvoices(ids: string[]): Promise<ActionResult<{ count: number }>> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const invoiceIds = invoiceIdsSchema.parse(ids)
+    await recordRevisionsForIds({
+      entityType: "invoice",
+      entityIds: invoiceIds,
+      action: "delete",
+      summary: "Eliminació massiva de factures",
+      actorUserId: session.user.id,
+    })
     const rows = await db
       .select({ filePathname: supplierInvoices.filePathname })
       .from(supplierInvoices)
@@ -1596,7 +1751,7 @@ export async function setPayrollEntryProjects(
     funderId?: string | null
   }[]
 ): Promise<ActionResult<{ count: number }>> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const list = await resolvePayrollAllocations(payrollAllocationSchema.parse(input))
     checkAllocations(
@@ -1615,6 +1770,13 @@ export async function setPayrollEntryProjects(
     if (!entries.length) return { ok: true, data: { count: 0 } }
     const ids = entries.map((e) => e.id)
 
+    await recordRevisionsForIds({
+      entityType: "payroll_entry",
+      entityIds: ids,
+      action: "replace_relations",
+      summary: `Reescriptura d'assignacions de nòmina (abast: ${scope})`,
+      actorUserId: session.user.id,
+    })
     await db.delete(payrollEntryProjects).where(inArray(payrollEntryProjects.entryId, ids))
     if (list.length) {
       await insertPayrollAllocations(
@@ -1692,7 +1854,14 @@ export async function extendPayroll(payrollId: string, untilMonth: string): Prom
 }
 
 export async function deletePayrollEntry(payrollId: string, entryId: string): Promise<ActionResult> {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "payroll_entry",
+    entityId: entryId,
+    action: "delete",
+    summary: "Eliminació d'un registre mensual de nòmina",
+    actorUserId: session.user.id,
+  })
   await db.delete(payrollEntries).where(eq(payrollEntries.id, entryId))
   revalidatePath(`/nomines/${payrollId}`)
   revalidatePath("/nomines")
@@ -1718,7 +1887,7 @@ export async function bulkUpdatePayrollEntries(
   entryIds: string[],
   patch: BulkPayrollEntryPatch
 ): Promise<ActionResult<{ count: number }>> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const ids = payrollEntryIdsSchema.parse(entryIds)
     const data = bulkPayrollEntryPatchSchema.parse(patch)
@@ -1731,6 +1900,16 @@ export async function bulkUpdatePayrollEntries(
       .where(and(eq(payrollEntries.payrollId, payrollId), inArray(payrollEntries.id, ids)))
     if (owned.length !== ids.length) throw new Error("Algun registre no pertany a aquesta nòmina")
     const ownedIds = owned.map((e) => e.id)
+
+    if (data.allocations) {
+      await recordRevisionsForIds({
+        entityType: "payroll_entry",
+        entityIds: ownedIds,
+        action: "replace_relations",
+        summary: "Actualització massiva d'assignacions de registres de nòmina",
+        actorUserId: session.user.id,
+      })
+    }
 
     if (data.amount !== undefined) {
       await db
@@ -1774,9 +1953,16 @@ export async function bulkDeletePayrollEntries(
   payrollId: string,
   entryIds: string[]
 ): Promise<ActionResult<{ count: number }>> {
-  await requireSession()
+  const session = await requireSession()
   try {
     const ids = payrollEntryIdsSchema.parse(entryIds)
+    await recordRevisionsForIds({
+      entityType: "payroll_entry",
+      entityIds: ids,
+      action: "delete",
+      summary: "Eliminació massiva de registres mensuals de nòmina",
+      actorUserId: session.user.id,
+    })
     const deleted = await db
       .delete(payrollEntries)
       .where(and(eq(payrollEntries.payrollId, payrollId), inArray(payrollEntries.id, ids)))
@@ -1792,7 +1978,14 @@ export async function bulkDeletePayrollEntries(
 }
 
 export async function deletePayroll(id: string) {
-  await requireSession()
+  const session = await requireSession()
+  await recordRevision({
+    entityType: "payroll",
+    entityId: id,
+    action: "delete",
+    summary: "Eliminació de nòmina (amb tots els registres i assignacions)",
+    actorUserId: session.user.id,
+  })
   await db.delete(payrolls).where(eq(payrolls.id, id))
   revalidatePath("/nomines")
   revalidatePath("/projectes", "layout")

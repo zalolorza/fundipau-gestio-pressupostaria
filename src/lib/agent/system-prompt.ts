@@ -21,7 +21,14 @@ Domini (finançament):
 - Factures i nòmines: diverses files d'assignació (mateix projecte permès). Cada fila: % (≤100) + activitat opcional + finançador opcional (client:uuid o subsidy:uuid). La suma de % d'una factura o entrada pot superar el 100 %.
 - Sense finançador a la fila → facturació del finançador amb el % efectiu del projecte (directe + via subvencions). Amb finançador explícit → el 100 % d'aquella part va a aquell finançador/subvenció (via subsidy_clients si és subvenció).
 - A la UI i a les respostes digues «finançador/finançadors» (no «client/clients»); les eines i claus tècniques continuen usant client / clientId / client:.
-- assignInvoiceToProject / assignPayrollToProject afegeixen files; no substitueixen les existents.`;
+- assignInvoiceToProject / assignPayrollToProject afegeixen files; no substitueixen les existents.
+
+Historial / revisions:
+- Les mutacions destructives (reescriptura d'assignacions, finançadors, eliminacions) desen un snapshot abans del canvi.
+- listRevisions / getRevision: consulta per entityType + entityId estable (invoice, payroll_entry, payroll, project, subsidy, client). No usis allocationId com a clau d'historial.
+- En citar l'historial: summary, data i actor.
+- restoreRevision: només si l'usuari ho confirma clarament (confirmed: true). Reescriu el graf de relacions; els UUID d'assignació es regeneren. El PDF de factura no es recupera si el Blob ja s'ha esborrat.
+- Després d'una restauració, resumeix què s'ha tornat i qualsevol warning retornat.`;
 
 /** System prompt estable (sense context de pàgina): cal per a les signatures dels blocs thinking d'Anthropic. */
 export function buildAgentSystemPrompt(): string {

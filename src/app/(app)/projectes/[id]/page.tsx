@@ -258,7 +258,7 @@ export default async function ProjectPage({
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Finançadors</CardTitle>
+                <CardTitle>Finançament</CardTitle>
                 <CardDescription>
                   Finançadors i subvencions que financen el projecte
                 </CardDescription>
@@ -270,31 +270,7 @@ export default async function ProjectPage({
                       Encara no hi ha cap finançador assignat.
                     </p>
                   )}
-                {project.clients.map((c) => (
-                  <div key={`c-${c.id}`} className="space-y-1">
-                    <div className="flex items-center justify-between gap-2 text-sm">
-                      <Link
-                        href={`/financadors/${c.id}`}
-                        className="truncate hover:text-primary hover:underline"
-                      >
-                        {c.name}
-                      </Link>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">Finançador</Badge>
-                        <Badge variant="secondary">
-                          {formatPct(c.percentage)}
-                        </Badge>
-                        <Badge variant="tertiary">
-                          {formatEuro((project.maxBudget * c.percentage) / 100)}
-                        </Badge>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      {formatEuro((project.costs.total * c.percentage) / 100)}{" "}
-                      imputats
-                    </p>
-                  </div>
-                ))}
+
                 {project.subsidies.map((s) => (
                   <div key={`s-${s.id}`} className="space-y-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
@@ -316,6 +292,32 @@ export default async function ProjectPage({
                     </div>
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {formatEuro((project.costs.total * s.percentage) / 100)}{" "}
+                      imputats
+                    </p>
+                  </div>
+                ))}
+
+                {project.clients.map((c) => (
+                  <div key={`c-${c.id}`} className="space-y-1">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <Link
+                        href={`/financadors/${c.id}`}
+                        className="truncate hover:text-primary hover:underline"
+                      >
+                        {c.name}
+                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">Finançador</Badge>
+                        <Badge variant="secondary">
+                          {formatPct(c.percentage)}
+                        </Badge>
+                        <Badge variant="tertiary">
+                          {formatEuro((project.maxBudget * c.percentage) / 100)}
+                        </Badge>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground tabular-nums">
+                      {formatEuro((project.costs.total * c.percentage) / 100)}{" "}
                       imputats
                     </p>
                   </div>

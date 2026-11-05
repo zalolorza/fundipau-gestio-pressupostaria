@@ -56,6 +56,14 @@ import {
   listSubsidies,
   listSuppliers,
 } from "@/server/queries"
+import {
+  getRevision,
+  listRevisions,
+  REVISION_ENTITY_TYPES,
+  restoreRevision,
+} from "@/server/revisions"
+
+const revisionEntityType = z.enum(REVISION_ENTITY_TYPES)
 
 const uuid = z.string().uuid()
 const optStr = z.string().optional().nullable()
@@ -993,6 +1001,72 @@ export function createAgentTools() {
       }),
       execute: async ({ projectId, activityId, name, budget }) =>
         updateProjectActivity(projectId, activityId, { name, budget: budget ?? null }),
+    }),
+
+    listRevisions: tool({
+      description:
+        "Llista l'historial de revisions d'una entitat (factura, entrada de nòmina, nòmina, projecte, subvenció o finançador). Usa entityId estable del pare, no allocationId.",
+      inputSchema: z.object({
+        entityType: revisionEntityType,
+        entityId: uuid,
+        limit: z.number().int().min(1).max(50).default(20),
+      }),
+      execute: async ({ entityType, entityId, limit }) => {
+        const rows = await listRevisions({ entityType, entityId, limit })
+        return {
+          items: rows.map((r) => ({
+            id: r.id,
+            action: r.action,
+            summary: r.summary,
+            createdAt: r.createdAt,
+            actor: r.actorName ?? r.actorEmail ?? r.actorUserId,
+          })),
+        }
+      },
+    }),
+
+    getRevision: tool({
+      description:
+        "Detall d'una revisió (snapshot before). Útil abans de restaurar o per explicar què s'ha perdut.",
+      inputSchema: z.object({ revisionId: uuid }),
+      execute: async ({ revisionId }) => {
+        const rev = await getRevision(revisionId)
+        if (!rev) return { ok: false as const, error: "Revisió no trobada" }
+        const beforeJson = JSON.stringify(rev.before)
+        const truncated = beforeJson.length > 12_000
+        return {
+          ok: true as const,
+          id: rev.id,
+          entityType: rev.entityType,
+          entityId: rev.entityId,
+          action: rev.action,
+          summary: rev.summary,
+          createdAt: rev.createdAt,
+          actor: rev.actorName ?? rev.actorEmail ?? rev.actorUserId,
+          before: truncated ? beforeJson.slice(0, 12_000) + "…" : rev.before,
+          beforeTruncated: truncated,
+        }
+      },
+    }),
+
+    restoreRevision: tool({
+      description:
+        "Restaura l'estat d'una entitat (i el seu graf de relacions) a partir d'una revisió. Només amb confirmació clara de l'usuari. Els UUID d'assignació es regeneren; el PDF de factura no es recupera si el Blob ja s'ha esborrat.",
+      inputSchema: z.object({
+        revisionId: uuid,
+        confirmed: z
+          .boolean()
+          .describe("Ha de ser true només si l'usuari ha confirmat explícitament la restauració"),
+      }),
+      execute: async ({ revisionId, confirmed }) => {
+        if (!confirmed) {
+          return {
+            ok: false as const,
+            error: "Cal confirmació explícita de l'usuari (confirmed: true)",
+          }
+        }
+        return restoreRevision(revisionId)
+      },
     }),
   }
 }
