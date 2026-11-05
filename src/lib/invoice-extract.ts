@@ -28,7 +28,7 @@ Llegeix el document i retorna NOMÉS un JSON vàlid (sense markdown) amb aqueste
   "irpfRate": number | null
 }
 Regles:
-- supplier* és el proveïdor / emissor de la factura (qui factura), no el client.
+- supplier* és el proveïdor / emissor de la factura (qui factura), no el finançador.
 - issueDate en ISO (YYYY-MM-DD).
 - baseAmount és la base imposable (sense IVA), en euros.
 - vatRate i irpfRate són percentatges (p. ex. 21, 15), no imports.

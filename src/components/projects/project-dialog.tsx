@@ -96,7 +96,7 @@ export function ProjectDialog({
     ...clientOptions.map((c) => ({
       id: funderKey("client", c.id),
       name: c.name,
-      hint: "Client",
+      hint: "Finançador",
     })),
     ...subsidyOptions.map((s) => ({
       id: funderKey("subsidy", s.id),
@@ -152,7 +152,7 @@ export function ProjectDialog({
         <DialogHeader>
           <DialogTitle>{project ? "Edita el projecte" : "Nou projecte"}</DialogTitle>
           <DialogDescription>
-            Dades bàsiques, pressupost i finançadors (clients o subvencions).
+            Dades bàsiques, pressupost i finançadors (directes o subvencions).
           </DialogDescription>
         </DialogHeader>
         <form id="project-form" onSubmit={onSubmit}>
@@ -255,7 +255,7 @@ export function ProjectDialog({
             <FieldSet>
               <FieldLegend>Finançadors</FieldLegend>
               <FieldDescription>
-                Clients o subvencions (percentatge o import). Ha de sumar 100 %.
+                Finançadors o subvencions (percentatge o import). Ha de sumar 100 %.
                 Una subvenció no pot superar el seu total disponible.
               </FieldDescription>
               <AllocationEditor

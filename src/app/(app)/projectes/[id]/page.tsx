@@ -260,7 +260,7 @@ export default async function ProjectPage({
               <CardHeader>
                 <CardTitle>Finançadors</CardTitle>
                 <CardDescription>
-                  Clients i subvencions que financen el projecte
+                  Finançadors i subvencions que financen el projecte
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -280,7 +280,7 @@ export default async function ProjectPage({
                         {c.name}
                       </Link>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline">Client</Badge>
+                        <Badge variant="outline">Finançador</Badge>
                         <Badge variant="secondary">
                           {formatPct(c.percentage)}
                         </Badge>

@@ -11,18 +11,18 @@ import { Card } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { listClients } from "@/server/queries"
 
-export const metadata: Metadata = { title: "Clients" }
+export const metadata: Metadata = { title: "Finançadors" }
 
 export default async function ClientsPage() {
   const clients = await listClients()
   return (
     <>
-      <PageHeader crumbs={[{ label: "Gestió" }, { label: "Clients" }]} />
+      <PageHeader crumbs={[{ label: "Gestió" }, { label: "Finançadors" }]} />
       <PageBody>
-        <PageTitle title="Clients" description="Entitats que financen els projectes.">
+        <PageTitle title="Finançadors" description="Entitats que financen els projectes.">
           <ClientDialog>
             <Button>
-              <PlusIcon /> Nou client
+              <PlusIcon /> Nou finançador
             </Button>
           </ClientDialog>
         </PageTitle>
@@ -42,7 +42,7 @@ export default async function ClientsPage() {
               {clients.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
-                    Encara no hi ha cap client.
+                    Encara no hi ha cap finançador.
                   </TableCell>
                 </TableRow>
               )}

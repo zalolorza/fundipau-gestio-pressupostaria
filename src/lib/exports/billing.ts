@@ -40,7 +40,7 @@ type BillingSheetLabels = {
 }
 
 const CLIENT_LABELS: BillingSheetLabels = {
-  shareColumn: "% client",
+  shareColumn: "% finançador",
   amountColumn: "A facturar",
 }
 

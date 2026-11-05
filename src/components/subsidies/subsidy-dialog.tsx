@@ -104,7 +104,7 @@ export function SubsidyDialog({
         <DialogHeader>
           <DialogTitle>{subsidy ? "Edita la subvenció" : "Nova subvenció"}</DialogTitle>
           <DialogDescription>
-            Import total, clients finançadors i projectes assignats.
+            Import total, finançadors i projectes assignats.
           </DialogDescription>
         </DialogHeader>
         <form id="subsidy-form" onSubmit={onSubmit}>
@@ -137,7 +137,7 @@ export function SubsidyDialog({
               <Textarea id="notes" name="notes" rows={3} defaultValue={subsidy?.notes ?? ""} />
             </Field>
             <FieldSet>
-              <FieldLegend>Clients finançadors</FieldLegend>
+              <FieldLegend>Finançadors</FieldLegend>
               <FieldDescription>
                 Repartiment del finançament (percentatge o import). No cal arribar al 100 %.
               </FieldDescription>
@@ -146,8 +146,8 @@ export function SubsidyDialog({
                 onChange={setAlloc}
                 options={clientOptions}
                 mode="max"
-                itemLabel="client"
-                emptyText="Cap client assignat"
+                itemLabel="finançador"
+                emptyText="Cap finançador assignat"
                 amountBase={Number.isFinite(totalN) && totalN > 0 ? totalN : undefined}
               />
             </FieldSet>

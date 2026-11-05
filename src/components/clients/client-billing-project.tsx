@@ -32,7 +32,7 @@ export function ClientBillingProjectPanel({
   clientName,
   from,
   to,
-  shareColumnLabel = "% client",
+  shareColumnLabel = "% finançador",
   amountColumnLabel = "A facturar",
   emptyLinesMessage = "Cap cost en aquest període.",
   emptyCategoryMessage = "Cap cost amb categories en aquest període.",

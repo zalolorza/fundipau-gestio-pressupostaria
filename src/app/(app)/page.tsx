@@ -85,7 +85,7 @@ export default async function HomePage() {
           <Kpi
             label="Projectes oberts"
             value={String(d.openCount)}
-            hint={`${d.clientCount} clients finançadors`}
+            hint={`${d.clientCount} finançadors`}
             href="/projectes"
             action={
               <ProjectDialog

@@ -40,7 +40,7 @@ export function SubsidyActions({
       </SubsidyDialog>
       <ConfirmButton
         title="Eliminar la subvenció?"
-        description="S'eliminaran també les seves assignacions a projectes i clients. Aquesta acció no es pot desfer."
+        description="S'eliminaran també les seves assignacions a projectes i finançadors. Aquesta acció no es pot desfer."
         onConfirm={() => deleteSubsidy(subsidy.id)}
       >
         <Button variant="outline" className="text-destructive">

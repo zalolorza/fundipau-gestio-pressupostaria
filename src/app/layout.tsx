@@ -14,7 +14,7 @@ const roboto = Roboto({
 
 export const metadata: Metadata = {
   title: { default: "Fundipau · Gestió", template: "%s · Fundipau" },
-  description: "Gestió de projectes, clients, subvencions, factures i nòmines",
+  description: "Gestió de projectes, finançadors, subvencions, factures i nòmines",
   icons: { icon: "/logo.svg" },
 }
 

@@ -116,7 +116,7 @@ async function resolveFunder(
       where: and(eq(projectClients.projectId, projectId), eq(projectClients.clientId, cols.clientId)),
       columns: { clientId: true },
     })
-    if (!row) throw new Error("El client no finança aquest projecte")
+    if (!row) throw new Error("El finançador no finança aquest projecte")
   } else if (cols.subsidyId) {
     const row = await db.query.projectSubsidies.findFirst({
       where: and(

@@ -17,7 +17,7 @@ export function ClientActions({ client }: { client: Client }) {
         </Button>
       </ClientDialog>
       <ConfirmButton
-        title="Eliminar el client?"
+        title="Eliminar el finançador?"
         description="S'eliminaran també les seves assignacions a projectes i subvencions. Aquesta acció no es pot desfer."
         onConfirm={() => deleteClient(client.id)}
       >

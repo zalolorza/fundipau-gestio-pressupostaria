@@ -6,6 +6,7 @@ import { NextResponse } from "next/server"
 import {
   messagesWithAttachments,
   parseAgentAttachments,
+  windowAgentMessages,
 } from "@/lib/agent/attachments"
 import { parsePageContext } from "@/lib/agent/page-context"
 import {
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
   }
 
   const messages = Array.isArray(body.messages) ? body.messages : []
-  const windowed = messages.slice(-HISTORY_WINDOW)
+  const windowed = windowAgentMessages(messages, HISTORY_WINDOW)
   const attachments = parseAgentAttachments(body.attachments)
   const pageCtx = parsePageContext(
     typeof body.pathname === "string" ? body.pathname : "/"
@@ -56,11 +57,11 @@ export async function POST(req: Request) {
   })
 
   const anthropic = createAnthropic({ apiKey })
-  const system = buildAgentSystemPrompt(pageCtx)
+  const system = buildAgentSystemPrompt()
 
   let modelMessages
   try {
-    modelMessages = await messagesWithAttachments(windowed, attachments)
+    modelMessages = await messagesWithAttachments(windowed, attachments, pageCtx)
   } catch (e) {
     console.error(e)
     return NextResponse.json(
@@ -79,6 +80,12 @@ export async function POST(req: Request) {
       anthropic: {
         effort: "low",
         cacheControl: { type: "ephemeral" },
+        // El system/prompt dinàmic o l'historial retallat invalidaven les
+        // signatures thinking; drop_block evita el 400 residual.
+        thinking: {
+          type: "adaptive",
+          blockBinding: { prefixMismatchBehavior: "drop_block" },
+        },
       },
     },
   })

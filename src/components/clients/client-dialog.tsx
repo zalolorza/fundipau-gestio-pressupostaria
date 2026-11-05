@@ -31,7 +31,7 @@ export function ClientDialog({ client, children }: { client?: Client; children: 
     start(async () => {
       const res = await saveClient(client?.id ?? null, f as never)
       if (!res.ok) return void toast.error(res.error)
-      toast.success(client ? "Client actualitzat" : "Client creat")
+      toast.success(client ? "Finançador actualitzat" : "Finançador creat")
       setOpen(false)
       if (!client && res.data) router.push(`/clients/${res.data.id}`)
     })
@@ -44,8 +44,8 @@ export function ClientDialog({ client, children }: { client?: Client; children: 
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{client ? "Edita el client" : "Nou client"}</DialogTitle>
-          <DialogDescription>Nom, dades fiscals i notes del client.</DialogDescription>
+          <DialogTitle>{client ? "Edita el finançador" : "Nou finançador"}</DialogTitle>
+          <DialogDescription>Nom, dades fiscals i notes del finançador.</DialogDescription>
         </DialogHeader>
         <form id="client-form" onSubmit={onSubmit}>
           <FieldGroup>

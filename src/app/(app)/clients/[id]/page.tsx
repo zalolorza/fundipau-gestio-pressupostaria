@@ -35,7 +35,7 @@ export async function generateMetadata({
 }: PageProps<"/clients/[id]">): Promise<Metadata> {
   const { id } = await params;
   const c = await getClient(id).catch(() => null);
-  return { title: c?.name ?? "Client" };
+  return { title: c?.name ?? "Finançador" };
 }
 
 function parseMonth(v: string | string[] | undefined, fallback: string) {
@@ -75,7 +75,7 @@ export default async function ClientPage({
     <>
       <PageHeader
         crumbs={[
-          { label: "Clients", href: "/clients" },
+          { label: "Finançadors", href: "/clients" },
           { label: client.name },
         ]}
       />

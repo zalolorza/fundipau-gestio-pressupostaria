@@ -116,7 +116,7 @@ export function createAgentTools() {
 
     getProject: tool({
       description:
-        "Detall d'un projecte: pressupost, costos, finançadors (clients i subvencions), activitats i resums de factures/nòmines assignades.",
+        "Detall d'un projecte: pressupost, costos, finançadors (directes i subvencions), activitats i resums de factures/nòmines assignades.",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const p = await getProject(id)
@@ -193,7 +193,7 @@ export function createAgentTools() {
     }),
 
     searchClients: tool({
-      description: "Cerca clients (finançadors) per nom.",
+      description: "Cerca finançadors per nom.",
       inputSchema: z.object({
         q: z.string().optional(),
         limit: z.number().int().min(1).max(30).default(15),
@@ -223,14 +223,14 @@ export function createAgentTools() {
 
     getClient: tool({
       description:
-        "Detall d'un client: projectes amb % efectiu (directe + via subvencions) i subvencions que finança.",
+        "Detall d'un finançador: projectes amb % efectiu (directe + via subvencions) i subvencions que finança.",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const [c, projectLinks] = await Promise.all([
           getClient(id),
           getClientProjectLinks(id),
         ])
-        if (!c) return { ok: false as const, error: "Client no trobat" }
+        if (!c) return { ok: false as const, error: "Finançador no trobat" }
         return {
           ok: true as const,
           client: {
@@ -265,7 +265,7 @@ export function createAgentTools() {
 
     getClientBilling: tool({
       description:
-        "Import facturable a un client en un període (costos dels projectes × % efectiu del client, incloent via subvencions).",
+        "Import facturable a un finançador en un període (costos dels projectes × % efectiu del finançador, incloent via subvencions).",
       inputSchema: z.object({
         clientId: uuid,
         from: z.string().describe("Data inici YYYY-MM-DD"),
@@ -318,7 +318,7 @@ export function createAgentTools() {
 
     getSubsidy: tool({
       description:
-        "Detall d'una subvenció: total, assignat a projectes/disponible, clients finançadors i projectes (amb import). Per al progrés d'imputació (factures/nòmines) usa getSubsidyBilling.",
+        "Detall d'una subvenció: total, assignat a projectes/disponible, finançadors i projectes (amb import). Per al progrés d'imputació (factures/nòmines) usa getSubsidyBilling.",
       inputSchema: z.object({ id: uuid }),
       execute: async ({ id }) => {
         const s = await getSubsidy(id)
@@ -592,7 +592,7 @@ export function createAgentTools() {
     }),
 
     saveClient: tool({
-      description: "Crea o actualitza un client. Passa id=null per crear.",
+      description: "Crea o actualitza un finançador. Passa id=null per crear.",
       inputSchema: z.object({
         id: uuid.nullable(),
         name: z.string().min(1),
@@ -647,7 +647,7 @@ export function createAgentTools() {
 
     setProjectFunders: tool({
       description:
-        "Defineix el repartiment del projecte entre clients i/o subvencions (suma exacta 100 %). No superar el total disponible de cada subvenció.",
+        "Defineix el repartiment del projecte entre finançadors i/o subvencions (suma exacta 100 %). No superar el total disponible de cada subvenció.",
       inputSchema: z.object({
         projectId: uuid,
         clients: z
@@ -682,7 +682,7 @@ export function createAgentTools() {
 
     setSubsidyClients: tool({
       description:
-        "Defineix els clients finançadors d'una subvenció (≤100 %; no cal arribar-hi).",
+        "Defineix els finançadors d'una subvenció (≤100 %; no cal arribar-hi).",
       inputSchema: z.object({
         subsidyId: uuid,
         allocations: z.array(z.object({ id: uuid, percentage: z.number().gt(0).lte(100) })),

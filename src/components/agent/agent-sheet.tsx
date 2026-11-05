@@ -202,7 +202,7 @@ export function AgentSheet({
             Agent CRM
           </SheetTitle>
           <SheetDescription>
-            Consulta i modifica projectes, factures, nòmines, clients i subvencions. Pots
+            Consulta i modifica projectes, factures, nòmines, finançadors i subvencions. Pots
             adjuntar PDF o imatges.
           </SheetDescription>
         </SheetHeader>
@@ -213,7 +213,7 @@ export function AgentSheet({
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p className="flex items-start gap-2">
                   <SparklesIcon className="mt-0.5 size-4 shrink-0" />
-                  Pregunta en català. Si ets en un detall (projecte, client, subvenció…),
+                  Pregunta en català. Si ets en un detall (projecte, finançador, subvenció…),
                   l&apos;agent el tindrà en compte. Adjunta factures amb el
                   clip.
                 </p>

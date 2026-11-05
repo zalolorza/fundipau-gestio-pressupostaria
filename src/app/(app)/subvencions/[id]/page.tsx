@@ -191,12 +191,12 @@ export default async function SubsidyPage({ params }: PageProps<"/subvencions/[i
 
         <Card className="mt-4">
           <CardHeader>
-            <CardTitle>Clients finançadors</CardTitle>
+            <CardTitle>Finançadors</CardTitle>
             <CardDescription>Repartiment del total de la subvenció.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {clients.length === 0 && (
-              <p className="text-sm text-muted-foreground">Encara no hi ha cap client assignat.</p>
+              <p className="text-sm text-muted-foreground">Encara no hi ha cap finançador assignat.</p>
             )}
             {clients.map((c) => (
               <div key={c.id} className="flex items-center justify-between gap-2 text-sm">

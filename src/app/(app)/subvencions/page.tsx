@@ -26,7 +26,7 @@ export default async function SubsidiesPage() {
       <PageBody>
         <PageTitle
           title="Subvencions"
-          description="Ajudes finançades per clients que poden finançar projectes."
+          description="Ajudes amb finançadors assignats que poden finançar projectes."
         >
           <SubsidyDialog
             clientOptions={clientOptions}
@@ -48,7 +48,7 @@ export default async function SubsidiesPage() {
                 <TableHead className="pl-4">Nom</TableHead>
                 <TableHead className="text-right">Total</TableHead>
                 <TableHead className="text-right">Disponible</TableHead>
-                <TableHead>Clients</TableHead>
+                <TableHead>Finançadors</TableHead>
                 <TableHead>Projectes</TableHead>
                 <TableHead className="pr-4">Notes</TableHead>
               </TableRow>

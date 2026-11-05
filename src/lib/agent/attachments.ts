@@ -2,8 +2,10 @@ import "server-only"
 
 import { get } from "@vercel/blob"
 import type { FilePart, ModelMessage, UIMessage } from "ai"
-import { convertToModelMessages } from "ai"
+import { convertToModelMessages, isReasoningUIPart } from "ai"
 
+import type { AgentPageContext } from "@/lib/agent/page-context"
+import { formatPageContextForUser } from "@/lib/agent/system-prompt"
 import {
   INVOICE_FILE_TYPES,
   isInvoiceFilePathname,
@@ -61,30 +63,26 @@ async function loadAttachmentParts(attachments: AgentAttachment[]): Promise<File
 }
 
 /**
- * Converteix missatges UI → model i, si hi ha adjunts del torn actual,
- * els carrega des del Blob i els afegeix al darrer missatge d'usuari.
+ * Retalla l'historial. Si cal truncar, treu els parts de reasoning:
+ * les signatures thinking d'Anthropic queden invalidades en treure
+ * missatges anteriors del prefix.
  */
-export async function messagesWithAttachments(
+export function windowAgentMessages(
   messages: UIMessage[],
-  attachments: AgentAttachment[]
-): Promise<ModelMessage[]> {
-  const cleaned = stripNonDataFileParts(messages)
-  const modelMessages = await convertToModelMessages(cleaned)
+  size: number
+): UIMessage[] {
+  if (messages.length <= size) return messages
+  return messages.slice(-size).map((m) => ({
+    ...m,
+    parts: (m.parts ?? []).filter((p) => !isReasoningUIPart(p)),
+  }))
+}
 
-  if (!attachments.length) return modelMessages
-
-  const fileParts = await loadAttachmentParts(attachments)
-  if (!fileParts.length) return modelMessages
-
-  const hint = {
-    type: "text" as const,
-    text:
-      "Arxius adjuntats (pathname al Blob, usa'ls a saveInvoice.file o extractInvoiceFromPathname):\n" +
-      attachments
-        .map((a) => `- ${a.fileName} | ${a.mediaType} | ${a.pathname}`)
-        .join("\n"),
-  }
-
+function prependToLastUserMessage(
+  modelMessages: ModelMessage[],
+  parts: Array<{ type: "text"; text: string } | FilePart>
+): void {
+  if (!parts.length) return
   for (let i = modelMessages.length - 1; i >= 0; i--) {
     const msg = modelMessages[i]
     if (msg.role !== "user") continue
@@ -92,16 +90,56 @@ export async function messagesWithAttachments(
     if (typeof content === "string") {
       modelMessages[i] = {
         role: "user",
-        content: [hint, { type: "text", text: content }, ...fileParts],
+        content: [...parts, { type: "text", text: content }],
       }
     } else if (Array.isArray(content)) {
       modelMessages[i] = {
         role: "user",
-        content: [hint, ...content, ...fileParts],
+        content: [...parts, ...content],
       }
     }
     break
   }
+}
 
+/**
+ * Converteix missatges UI → model i, si hi ha adjunts del torn actual,
+ * els carrega des del Blob i els afegeix al darrer missatge d'usuari.
+ * El context de pàgina també va al darrer missatge (no al system) per
+ * mantenir estable el prefix de les signatures thinking.
+ */
+export async function messagesWithAttachments(
+  messages: UIMessage[],
+  attachments: AgentAttachment[],
+  pageCtx?: AgentPageContext
+): Promise<ModelMessage[]> {
+  const cleaned = stripNonDataFileParts(messages)
+  const modelMessages = await convertToModelMessages(cleaned)
+
+  const prefixParts: Array<{ type: "text"; text: string } | FilePart> = []
+
+  if (pageCtx) {
+    prefixParts.push({
+      type: "text",
+      text: formatPageContextForUser(pageCtx),
+    })
+  }
+
+  if (attachments.length) {
+    const fileParts = await loadAttachmentParts(attachments)
+    if (fileParts.length) {
+      prefixParts.push({
+        type: "text",
+        text:
+          "Arxius adjuntats (pathname al Blob, usa'ls a saveInvoice.file o extractInvoiceFromPathname):\n" +
+          attachments
+            .map((a) => `- ${a.fileName} | ${a.mediaType} | ${a.pathname}`)
+            .join("\n"),
+      })
+      prefixParts.push(...fileParts)
+    }
+  }
+
+  prependToLastUserMessage(modelMessages, prefixParts)
   return modelMessages
 }
