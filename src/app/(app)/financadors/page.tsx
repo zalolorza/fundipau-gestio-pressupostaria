@@ -47,9 +47,9 @@ export default async function ClientsPage() {
                 </TableRow>
               )}
               {clients.map((c) => (
-                <InteractiveTableRow key={c.id} href={`/clients/${c.id}`}>
+                <InteractiveTableRow key={c.id} href={`/financadors/${c.id}`}>
                   <TableCell className="pl-4 font-medium">
-                    <Link href={`/clients/${c.id}`} className="hover:text-primary hover:underline">
+                    <Link href={`/financadors/${c.id}`} className="hover:text-primary hover:underline">
                       {c.name}
                     </Link>
                   </TableCell>

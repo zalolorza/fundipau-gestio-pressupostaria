@@ -299,8 +299,8 @@ export async function saveClient(id: string | null, input: ClientInput): Promise
     let clientId = id
     if (id) await db.update(clients).set(data).where(eq(clients.id, id))
     else [{ id: clientId }] = await db.insert(clients).values(data).returning({ id: clients.id })
-    revalidatePath("/clients")
-    revalidatePath(`/clients/${clientId}`)
+    revalidatePath("/financadors")
+    revalidatePath(`/financadors/${clientId}`)
     return { ok: true, data: { id: clientId! } }
   } catch (e) {
     return fail(e)
@@ -310,9 +310,9 @@ export async function saveClient(id: string | null, input: ClientInput): Promise
 export async function deleteClient(id: string) {
   await requireSession()
   await db.delete(clients).where(eq(clients.id, id))
-  revalidatePath("/clients")
+  revalidatePath("/financadors")
   revalidatePath("/subvencions", "layout")
-  redirect("/clients")
+  redirect("/financadors")
 }
 
 /* ------------------------------ Subvencions ------------------------------ */
@@ -364,7 +364,7 @@ export async function deleteSubsidy(id: string) {
   await db.delete(subsidies).where(eq(subsidies.id, id))
   revalidatePath("/subvencions")
   revalidatePath("/projectes", "layout")
-  revalidatePath("/clients", "layout")
+  revalidatePath("/financadors", "layout")
   redirect("/subvencions")
 }
 
@@ -388,7 +388,7 @@ export async function setSubsidyClients(
     else await del
     revalidatePath(`/subvencions/${subsidyId}`)
     revalidatePath("/subvencions")
-    revalidatePath("/clients", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true }
   } catch (e) {
     return fail(e)
@@ -434,7 +434,7 @@ export async function setSubsidyProjects(
     revalidatePath(`/subvencions/${subsidyId}`)
     revalidatePath("/subvencions")
     revalidatePath("/projectes", "layout")
-    revalidatePath("/clients", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true }
   } catch (e) {
     return fail(e)
@@ -660,7 +660,7 @@ export async function setProjectFunders(
       )
     revalidatePath(`/projectes/${projectId}`)
     revalidatePath("/projectes")
-    revalidatePath("/clients", "layout")
+    revalidatePath("/financadors", "layout")
     revalidatePath("/subvencions", "layout")
     return { ok: true }
   } catch (e) {
@@ -1575,7 +1575,7 @@ export async function changePayrollAmount(
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
     revalidatePath("/projectes", "layout")
-    revalidatePath("/clients", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true, data: { count } }
   } catch (e) {
     return fail(e)
@@ -1763,7 +1763,7 @@ export async function bulkUpdatePayrollEntries(
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
     revalidatePath("/projectes", "layout")
-    revalidatePath("/clients", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true, data: { count: ownedIds.length } }
   } catch (e) {
     return fail(e)
@@ -1784,7 +1784,7 @@ export async function bulkDeletePayrollEntries(
     revalidatePath(`/nomines/${payrollId}`)
     revalidatePath("/nomines")
     revalidatePath("/projectes", "layout")
-    revalidatePath("/clients", "layout")
+    revalidatePath("/financadors", "layout")
     return { ok: true, data: { count: deleted.length } }
   } catch (e) {
     return fail(e)

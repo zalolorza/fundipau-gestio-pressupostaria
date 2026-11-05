@@ -201,7 +201,7 @@ export default async function SubsidyPage({ params }: PageProps<"/subvencions/[i
             {clients.map((c) => (
               <div key={c.id} className="flex items-center justify-between gap-2 text-sm">
                 <Link
-                  href={`/clients/${c.id}`}
+                  href={`/financadors/${c.id}`}
                   className="truncate hover:text-primary hover:underline"
                 >
                   {c.name}

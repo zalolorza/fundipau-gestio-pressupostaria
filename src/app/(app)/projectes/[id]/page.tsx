@@ -274,7 +274,7 @@ export default async function ProjectPage({
                   <div key={`c-${c.id}`} className="space-y-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <Link
-                        href={`/clients/${c.id}`}
+                        href={`/financadors/${c.id}`}
                         className="truncate hover:text-primary hover:underline"
                       >
                         {c.name}

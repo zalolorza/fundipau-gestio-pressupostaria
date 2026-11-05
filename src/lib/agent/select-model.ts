@@ -23,7 +23,7 @@ export function selectAgentModel(
 
   const looksComplexWrite = COMPLEX_WRITE.test(text) && (
     MULTI_INTENT.test(text) ||
-    (text.match(/\b(projecte|factura|nòmina|nomina|client|subvenció|subvencio|proveïdor|proveidor|activitat|categoria)\b/gi)?.length ?? 0) >= 2 ||
+    (text.match(/\b(projecte|factura|nòmina|nomina|client|finançador|financador|subvenció|subvencio|proveïdor|proveidor|activitat|categoria)\b/gi)?.length ?? 0) >= 2 ||
     text.length > 280
   )
 

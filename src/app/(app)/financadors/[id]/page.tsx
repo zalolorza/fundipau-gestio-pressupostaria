@@ -32,7 +32,7 @@ import {
 
 export async function generateMetadata({
   params,
-}: PageProps<"/clients/[id]">): Promise<Metadata> {
+}: PageProps<"/financadors/[id]">): Promise<Metadata> {
   const { id } = await params;
   const c = await getClient(id).catch(() => null);
   return { title: c?.name ?? "Finançador" };
@@ -47,7 +47,7 @@ function parseMonth(v: string | string[] | undefined, fallback: string) {
 export default async function ClientPage({
   params,
   searchParams,
-}: PageProps<"/clients/[id]">) {
+}: PageProps<"/financadors/[id]">) {
   const { id } = await params;
   const sp = await searchParams;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
@@ -75,7 +75,7 @@ export default async function ClientPage({
     <>
       <PageHeader
         crumbs={[
-          { label: "Finançadors", href: "/clients" },
+          { label: "Finançadors", href: "/financadors" },
           { label: client.name },
         ]}
       />
@@ -142,7 +142,7 @@ export default async function ClientPage({
             <CardHeader>
               <CardTitle>Subvencions</CardTitle>
               <CardDescription>
-                Percentatge que finança d&apos;aquest client.
+                Percentatge que finança d&apos;aquest finançador.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -169,7 +169,7 @@ export default async function ClientPage({
           <div>
             <h2 className="text-xl font-medium">Factures a emetre</h2>
             <p className="text-sm text-muted-foreground">
-              Costos imputats als projectes del client en el període,
+              Costos imputats als projectes del finançador en el període,
               multiplicats pel seu percentatge efectiu (directe i via
               subvencions).
             </p>
@@ -219,7 +219,7 @@ async function Billing({
   if (billing.projects.length === 0)
     return (
       <p className="text-sm text-muted-foreground">
-        Aquest client no té cap projecte assignat.
+        Aquest finançador no té cap projecte assignat.
       </p>
     );
 

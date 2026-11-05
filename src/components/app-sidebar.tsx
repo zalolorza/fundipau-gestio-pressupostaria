@@ -43,7 +43,7 @@ const navBase = [
     title: "Gestió",
     items: [
       { title: "Projectes", url: "/projectes", icon: BriefcaseBusinessIcon },
-      { title: "Finançadors", url: "/clients", icon: UsersIcon },
+      { title: "Finançadors", url: "/financadors", icon: UsersIcon },
       { title: "Subvencions", url: "/subvencions", icon: HandCoinsIcon },
     ],
   },

@@ -33,7 +33,7 @@ export function ClientDialog({ client, children }: { client?: Client; children: 
       if (!res.ok) return void toast.error(res.error)
       toast.success(client ? "Finançador actualitzat" : "Finançador creat")
       setOpen(false)
-      if (!client && res.data) router.push(`/clients/${res.data.id}`)
+      if (!client && res.data) router.push(`/financadors/${res.data.id}`)
     })
   }
 
