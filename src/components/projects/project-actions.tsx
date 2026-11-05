@@ -5,6 +5,7 @@ import { PencilIcon, Trash2Icon } from "lucide-react"
 import { ConfirmButton } from "@/components/app/confirm-button"
 import type { AllocationRow } from "@/components/app/allocation-editor"
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button"
+import { EntityRevisionsButton } from "@/components/app/entity-revisions-button"
 import { ProjectDialog } from "@/components/projects/project-dialog"
 import { Button } from "@/components/ui/button"
 import type { Project } from "@/db/schema"
@@ -49,6 +50,7 @@ export function ProjectActions({
         filename={projectExportFilename(exportData.name)}
         getSheets={() => buildProjectSheets(exportData)}
       />
+      <EntityRevisionsButton entityType="project" entityId={project.id} />
       <ConfirmButton
         title="Eliminar el projecte?"
         description="Les factures i nòmines no s'eliminen, però perdran l'assignació a aquest projecte."

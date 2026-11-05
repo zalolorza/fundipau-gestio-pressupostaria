@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { ConfirmButton } from "@/components/app/confirm-button";
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button";
+import { EntityRevisionsButton } from "@/components/app/entity-revisions-button";
 import { AmountChangeDialog } from "@/components/payroll/amount-change-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,6 +74,7 @@ export function PayrollHeaderActions({
         disabled={entries.length === 0}
       />
       <InfoDialog payroll={payroll} />
+      <EntityRevisionsButton entityType="payroll" entityId={payroll.id} />
       <ConfirmButton
         title="Eliminar la nòmina?"
         description="S'eliminaran tots els registres mensuals i les seves assignacions a projectes."

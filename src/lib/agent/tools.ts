@@ -152,6 +152,11 @@ export function createAgentTools() {
               id: s.id,
               name: s.name,
               percentage: s.percentage,
+              clients: s.clients.map((c) => ({
+                id: c.id,
+                name: c.name,
+                percentage: c.percentage,
+              })),
             })),
             activities: p.activities,
             categoryTotals: p.categoryTotals,

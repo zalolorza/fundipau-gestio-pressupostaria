@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import {
   CategoryPicker,
   type CategoryRef,
@@ -316,7 +317,7 @@ export function AssignPayrollDialog({
                   <SelectItem value={NONE}>Finançament dividit</SelectItem>
                   {funders.map((f) => (
                     <SelectItem key={f.id} value={f.id}>
-                      {f.name}
+                      <FunderOptionLabel id={f.id} name={f.name} />
                     </SelectItem>
                   ))}
                 </SelectContent>

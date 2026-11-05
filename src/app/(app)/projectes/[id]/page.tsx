@@ -263,7 +263,7 @@ export default async function ProjectPage({
                   Finançadors i subvencions que financen el projecte
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-5">
                 {project.clients.length === 0 &&
                   project.subsidies.length === 0 && (
                     <p className="text-sm text-muted-foreground">
@@ -276,12 +276,12 @@ export default async function ProjectPage({
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <Link
                         href={`/subvencions/${s.id}`}
-                        className="truncate hover:text-primary hover:underline"
+                        className="truncate hover:text-primary space-x-2 hover:underline font-medium"
                       >
-                        {s.name}
+                        <span>{s.name}</span>{" "}
+                        <Badge variant="outline">Subvenció</Badge>
                       </Link>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline">Subvenció</Badge>
                         <Badge variant="secondary">
                           {formatPct(s.percentage)}
                         </Badge>
@@ -290,6 +290,24 @@ export default async function ProjectPage({
                         </Badge>
                       </div>
                     </div>
+                    {s.clients.length > 0 && (
+                      <ul className="list-disc list-inside space-y-1.5">
+                        {s.clients.map((c) => (
+                          <li key={c.id} className="space-x-2">
+                            <Link
+                              key={c.id}
+                              href={`/financadors/${c.id}`}
+                              className="text-sm text-muted-foreground hover:text-primary hover:underline"
+                            >
+                              {c.name}
+                            </Link>
+                            <Badge variant="secondary">
+                              {formatPct(c.percentage)}
+                            </Badge>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <p className="text-xs text-muted-foreground tabular-nums">
                       {formatEuro((project.costs.total * s.percentage) / 100)}{" "}
                       imputats
@@ -302,12 +320,12 @@ export default async function ProjectPage({
                     <div className="flex items-center justify-between gap-2 text-sm">
                       <Link
                         href={`/financadors/${c.id}`}
-                        className="truncate hover:text-primary hover:underline"
+                        className="truncate hover:text-primary space-x-2 hover:underline font-medium"
                       >
-                        {c.name}
+                        <span>{c.name}</span>{" "}
+                        <Badge variant="outline">Finançador</Badge>
                       </Link>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline">Finançador</Badge>
                         <Badge variant="secondary">
                           {formatPct(c.percentage)}
                         </Badge>

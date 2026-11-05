@@ -3,6 +3,7 @@
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
+import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import {
   CategoryPicker,
   type CategoryRef,
@@ -36,6 +37,8 @@ export type AllocationOption = {
   id: string;
   name: string;
   hint?: string;
+  /** Badge opcional (p. ex. «Subvenció») al desplegable. */
+  badge?: string;
   disabled?: boolean;
 };
 export type AllocationActivityOption = { id: string; name: string };
@@ -240,13 +243,17 @@ export function AllocationEditor({
                           o.id !== row.id)
                       }
                     >
-                      {o.name}
-                      {o.hint && (
-                        <span className="text-muted-foreground">
-                          {" "}
-                          · {o.hint}
-                        </span>
-                      )}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="truncate">{o.name}</span>
+                        {o.badge && (
+                          <Badge variant="outline">{o.badge}</Badge>
+                        )}
+                        {o.hint && (
+                          <span className="text-muted-foreground">
+                            · {o.hint}
+                          </span>
+                        )}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -286,7 +293,7 @@ export function AllocationEditor({
                   disabled={!row.id || projectFunders.length === 0}
                 >
                   <SelectTrigger
-                    className="w-full sm:w-44 shrink-0"
+                    className="w-full sm:w-56 shrink-0"
                     aria-label="Finançador"
                   >
                     <SelectValue placeholder="Finançament dividit" />
@@ -297,7 +304,7 @@ export function AllocationEditor({
                     </SelectItem>
                     {projectFunders.map((f) => (
                       <SelectItem key={f.id} value={f.id}>
-                        {f.name}
+                        <FunderOptionLabel id={f.id} name={f.name} />
                       </SelectItem>
                     ))}
                   </SelectContent>

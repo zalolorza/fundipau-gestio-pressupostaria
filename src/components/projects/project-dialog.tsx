@@ -96,15 +96,16 @@ export function ProjectDialog({
     ...clientOptions.map((c) => ({
       id: funderKey("client", c.id),
       name: c.name,
-      hint: "Finançador",
+      badge: "Finançador" as const,
     })),
     ...subsidyOptions.map((s) => ({
       id: funderKey("subsidy", s.id),
       name: s.name,
+      badge: "Subvenció" as const,
       hint:
         s.available != null
-          ? `Subvenció · ${formatEuro(s.available)} disponibles`
-          : "Subvenció",
+          ? `${formatEuro(s.available)} disponibles`
+          : undefined,
       disabled: s.available != null && s.available <= 0,
     })),
   ]

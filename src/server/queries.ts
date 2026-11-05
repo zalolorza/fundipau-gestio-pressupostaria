@@ -607,7 +607,17 @@ export async function getProject(id: string) {
     where: eq(projects.id, id),
     with: {
       clients: { with: { client: true } },
-      subsidies: { with: { subsidy: true } },
+      subsidies: {
+        with: {
+          subsidy: {
+            with: {
+              clients: {
+                with: { client: { columns: { id: true, name: true } } },
+              },
+            },
+          },
+        },
+      },
     },
   })
   if (!project) return null
@@ -862,10 +872,17 @@ export async function getProject(id: string) {
   return {
     ...project,
     clients: project.clients.map((pc) => ({ ...pc.client, percentage: pc.percentage })),
-    subsidies: project.subsidies.map((ps) => ({
-      ...ps.subsidy,
-      percentage: ps.percentage,
-    })),
+    subsidies: project.subsidies.map((ps) => {
+      const { clients: subsidyClientRows, ...subsidy } = ps.subsidy
+      return {
+        ...subsidy,
+        percentage: ps.percentage,
+        clients: subsidyClientRows.map((sc) => ({
+          ...sc.client,
+          percentage: sc.percentage,
+        })),
+      }
+    }),
     funders: [
       ...project.clients.map((pc) => ({
         id: funderKey("client", pc.client.id),

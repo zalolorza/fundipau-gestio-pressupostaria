@@ -341,7 +341,7 @@ export function InvoiceDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       {children ? <DialogTrigger asChild>{children}</DialogTrigger> : null}
       <DialogContent
-        className="sm:max-w-3xl"
+        className="sm:max-w-4xl"
         showCloseButton={!extracting}
         onEscapeKeyDown={(e) => {
           if (extracting) e.preventDefault()

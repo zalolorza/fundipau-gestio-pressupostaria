@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { DownloadXlsxButton } from "@/components/app/download-xlsx-button";
+import { FunderOptionLabel } from "@/components/app/funder-option-label";
 import { InteractiveTableRow } from "@/components/app/interactive-table-row";
 import { InvoiceDialog } from "@/components/invoices/invoice-dialog";
 import {
@@ -174,7 +175,7 @@ function FunderFilterSelect({
         <SelectItem value="none">Finançament dividit</SelectItem>
         {funders.map((f) => (
           <SelectItem key={f.id} value={f.id}>
-            {f.name}
+            <FunderOptionLabel id={f.id} name={f.name} />
           </SelectItem>
         ))}
       </SelectContent>
@@ -277,7 +278,7 @@ function FunderSelect({
         <SelectItem value={FUNDER_NONE}>Finançament dividit</SelectItem>
         {funders.map((f) => (
           <SelectItem key={f.id} value={f.id}>
-            {f.name}
+            <FunderOptionLabel id={f.id} name={f.name} />
           </SelectItem>
         ))}
       </SelectContent>

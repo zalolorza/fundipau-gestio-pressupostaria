@@ -32,7 +32,30 @@ import { funderColumns, parseFunderKey } from "@/lib/funders"
 import { computeInvoice } from "@/lib/invoice"
 import { isInvoiceFilePathname } from "@/lib/invoice-file"
 import { addMonths, endOfYear, monthRange, toMonth } from "@/lib/months"
-import { recordRevision, recordRevisionsForIds } from "@/server/revisions"
+import {
+  getRevision as getRevisionImpl,
+  listRevisions as listRevisionsImpl,
+  recordRevision,
+  recordRevisionsForIds,
+  restoreRevision as restoreRevisionImpl,
+  type RevisionEntityType,
+} from "@/server/revisions"
+
+export async function listRevisions(opts: {
+  entityType: RevisionEntityType
+  entityId: string
+  limit?: number
+}) {
+  return listRevisionsImpl(opts)
+}
+
+export async function getRevision(revisionId: string) {
+  return getRevisionImpl(revisionId)
+}
+
+export async function restoreRevision(revisionId: string) {
+  return restoreRevisionImpl(revisionId)
+}
 
 async function deleteBlobQuietly(pathname: string | null | undefined) {
   if (!pathname || !isInvoiceFilePathname(pathname)) return

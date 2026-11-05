@@ -67,7 +67,7 @@ export function BulkEditInvoicesDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             Editar {invoiceIds.length} {invoiceIds.length === 1 ? "factura" : "factures"}

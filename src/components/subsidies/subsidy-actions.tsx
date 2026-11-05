@@ -4,6 +4,7 @@ import { PencilIcon, Trash2Icon } from "lucide-react"
 
 import type { AllocationRow } from "@/components/app/allocation-editor"
 import { ConfirmButton } from "@/components/app/confirm-button"
+import { EntityRevisionsButton } from "@/components/app/entity-revisions-button"
 import {
   SubsidyDialog,
   type SubsidyProjectOption,
@@ -38,6 +39,7 @@ export function SubsidyActions({
           <PencilIcon /> Edita
         </Button>
       </SubsidyDialog>
+      <EntityRevisionsButton entityType="subsidy" entityId={subsidy.id} />
       <ConfirmButton
         title="Eliminar la subvenció?"
         description="S'eliminaran també les seves assignacions a projectes i finançadors. Aquesta acció no es pot desfer."

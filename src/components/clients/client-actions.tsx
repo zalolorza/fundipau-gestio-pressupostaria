@@ -3,6 +3,7 @@
 import { PencilIcon, Trash2Icon } from "lucide-react"
 
 import { ConfirmButton } from "@/components/app/confirm-button"
+import { EntityRevisionsButton } from "@/components/app/entity-revisions-button"
 import { ClientDialog } from "@/components/clients/client-dialog"
 import { Button } from "@/components/ui/button"
 import type { Client } from "@/db/schema"
@@ -16,6 +17,7 @@ export function ClientActions({ client }: { client: Client }) {
           <PencilIcon /> Edita
         </Button>
       </ClientDialog>
+      <EntityRevisionsButton entityType="client" entityId={client.id} />
       <ConfirmButton
         title="Eliminar el finançador?"
         description="S'eliminaran també les seves assignacions a projectes i subvencions. Aquesta acció no es pot desfer."
